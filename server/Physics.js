@@ -4,7 +4,10 @@ const Physics = {
   // ─── Worm ────────────────────────────────────────────────────────────────
 
   moveWorm(worm, direction, terrain) {
-    if (!worm.alive || !worm.onGround) return;
+    if (!worm.alive) return;
+    // Allow movement on ground or when barely airborne (uneven terrain).
+    // Block only when actively jumping up or falling fast.
+    if (!worm.onGround && (worm.vy < -2 || worm.vy > 8)) return;
     const dx = direction === 'left' ? -cfg.WALK_SPEED : cfg.WALK_SPEED;
     const nx = worm.x + dx;
 

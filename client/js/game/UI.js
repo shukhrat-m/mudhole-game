@@ -55,9 +55,12 @@ export default class UI {
     const bEl = topEl.querySelector('#hud-team-b');
     bEl.innerHTML = tB.map(w => this._wormRow(w, w.id === currentPlayerId)).join('');
 
-    // Панель оружий
+    // Панель оружий + подсказка управления
     const wpEl = this._hud.querySelector('#hud-weapons');
     if (wpEl) wpEl.style.display = myTurn ? 'flex' : 'none';
+
+    const hintEl = this._hud.querySelector('#hud-controls-hint');
+    if (hintEl) hintEl.style.display = myTurn ? 'block' : 'none';
   }
 
   setWeapon(weapon) {
@@ -111,6 +114,14 @@ export default class UI {
           pointer-events:auto;transition:all 0.15s;
         ">✕ Leave</button>
       </div>
+
+      <div id="hud-controls-hint" style="
+        position:absolute;bottom:80px;left:50%;transform:translateX(-50%);
+        background:rgba(0,0,0,0.55);border:1px solid rgba(255,255,255,0.1);
+        border-radius:8px;padding:6px 14px;font-size:11px;
+        color:rgba(255,255,255,0.45);letter-spacing:0.5px;
+        white-space:nowrap;pointer-events:none;display:none;
+      ">← → Move &nbsp;|&nbsp; Space Jump &nbsp;|&nbsp; ↑↓ Aim &nbsp;|&nbsp; Enter Fire &nbsp;|&nbsp; 1–6 Weapon &nbsp;|&nbsp; Tab End</div>
 
       <div class="hud-weapons" id="hud-weapons" style="display:none">
         ${WEAPONS.map(w => `

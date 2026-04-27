@@ -10,7 +10,7 @@ module.exports = {
 
   // Physics
   GRAVITY: 0.5,
-  WALK_SPEED: 3,
+  WALK_SPEED: 5,
   JUMP_FORCE: -12,
   FALL_DAMAGE_THRESHOLD: 150,
   FALL_DAMAGE_MULTIPLIER: 0.3,

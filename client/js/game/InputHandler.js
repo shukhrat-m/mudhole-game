@@ -10,6 +10,7 @@ export default class InputHandler {
     this._myTurn      = false;
     this._moveInterval = null;
     this._moveDir     = null;
+    this._aimInterval  = null;
     this._weapon      = 'grenade';
     this._mobileEl    = null;
     this._isTouch     = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -35,7 +36,7 @@ export default class InputHandler {
 
   setTurn(isMyTurn) {
     this._myTurn = isMyTurn;
-    if (!isMyTurn) this._stopMove();
+    if (!isMyTurn) { this._stopMove(); this._stopAim(); this._keys.clear(); }
     if (this._mobileEl) {
       this._mobileEl.style.display = (isMyTurn && this._isTouch) ? 'flex' : 'none';
     }
@@ -46,6 +47,13 @@ export default class InputHandler {
   getMouseWorld()   { return this._mouseWorld; }
   getWeapon()       { return this._weapon; }
 
+  // Called every frame from Game._update(dt) — handles held ↑↓ aim keys
+  tick(dt) {
+    if (!this._myTurn) return;
+    if (this._keys.has('ArrowUp'))   this._aimAngle -= 0.04 * dt;
+    if (this._keys.has('ArrowDown')) this._aimAngle += 0.04 * dt;
+  }
+
   destroy() {
     window.removeEventListener('keydown',   this._onKey);
     window.removeEventListener('keyup',     this._onKeyUp);
@@ -54,6 +62,7 @@ export default class InputHandler {
     this._canvas.removeEventListener('touchmove', this._onTouchMove);
     this._canvas.removeEventListener('touchend',  this._onTouchEnd);
     this._stopMove();
+    this._stopAim();
     if (this._mobileEl) { this._mobileEl.remove(); this._mobileEl = null; }
   }
 
@@ -73,9 +82,17 @@ export default class InputHandler {
         this._startMove('right');
         break;
       case 'ArrowUp':
+      case 'ArrowDown':
+        e.preventDefault();
+        // aim rotation handled in tick()
+        break;
       case ' ':
         e.preventDefault();
         this._net.send({ type: 'jump' });
+        break;
+      case 'Enter':
+        e.preventDefault();
+        this._fire();
         break;
       case '1': this._selectWeapon('grenade');      break;
       case '2': this._selectWeapon('bazooka');      break;
@@ -93,7 +110,7 @@ export default class InputHandler {
   _onKeyUp(e) {
     this._keys.delete(e.key);
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      if (e.key === 'ArrowLeft'  && this._keys.has('ArrowRight')) this._startMove('right');
+      if      (e.key === 'ArrowLeft'  && this._keys.has('ArrowRight')) this._startMove('right');
       else if (e.key === 'ArrowRight' && this._keys.has('ArrowLeft'))  this._startMove('left');
       else this._stopMove();
     }
@@ -115,6 +132,11 @@ export default class InputHandler {
     this._moveDir = null;
     clearInterval(this._moveInterval);
     this._moveInterval = null;
+  }
+
+  _stopAim() {
+    clearInterval(this._aimInterval);
+    this._aimInterval = null;
   }
 
   // ── Mouse ─────────────────────────────────────────────────────────────────
@@ -199,6 +221,10 @@ export default class InputHandler {
         <button id="mc-right" class="mc-btn">▶</button>
       </div>
       <div class="mc-group">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button id="mc-aim-up"   class="mc-btn mc-aim-btn">↑</button>
+          <button id="mc-aim-down" class="mc-btn mc-aim-btn">↓</button>
+        </div>
         <button id="mc-fire" class="mc-btn mc-fire-btn">FIRE</button>
         <button id="mc-end"  class="mc-btn mc-end-btn">END</button>
       </div>
@@ -211,6 +237,8 @@ export default class InputHandler {
     this._tapBtn ('mc-jump',  () => this._net.send({ type: 'jump' }));
     this._tapBtn ('mc-fire',  () => this._fire());
     this._tapBtn ('mc-end',   () => this._net.send({ type: 'end_turn' }));
+    this._holdAimBtn('mc-aim-up',   -0.05);
+    this._holdAimBtn('mc-aim-down',  0.05);
   }
 
   _holdBtn(id, onStart, onEnd) {
@@ -225,5 +253,20 @@ export default class InputHandler {
     const btn = document.getElementById(id);
     if (!btn) return;
     btn.addEventListener('touchstart', (e) => { e.preventDefault(); if (this._myTurn) fn(); }, { passive: false });
+  }
+
+  _holdAimBtn(id, delta) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const start = (e) => {
+      e.preventDefault();
+      if (!this._myTurn) return;
+      this._stopAim();
+      this._aimInterval = setInterval(() => { this._aimAngle += delta; }, 30);
+    };
+    const stop = (e) => { e.preventDefault(); this._stopAim(); };
+    btn.addEventListener('touchstart',  start, { passive: false });
+    btn.addEventListener('touchend',    stop,  { passive: false });
+    btn.addEventListener('touchcancel', stop,  { passive: false });
   }
 }

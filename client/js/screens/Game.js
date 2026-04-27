@@ -138,6 +138,7 @@ export default class GameScreen {
   }
 
   _update(dt) {
+    if (this._input) this._input.tick(dt);
     this._wormRender.tick();
     this._particles.update();
 
