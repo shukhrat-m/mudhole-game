@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MUDHOLE</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a0f;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      user-select: none;
+    }
+
+    /* Canvas стеки */
+    #canvas-bg, #canvas-terrain, #canvas-game, #canvas-effects, #canvas-ui-game {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+    #canvas-bg      { z-index: 1; }
+    #canvas-terrain { z-index: 2; }
+    #canvas-game    { z-index: 3; }
+    #canvas-effects { z-index: 4; }
+    #canvas-ui-game { z-index: 5; }
+
+    /* UI overlay поверх всех canvas */
+    #ui {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 10;
+    }
+
+    /* ── Общие компоненты ── */
+    .screen {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
+    .panel {
+      background: rgba(10, 10, 20, 0.92);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 32px 40px;
+      min-width: 360px;
+      backdrop-filter: blur(8px);
+    }
+
+    .logo {
+      font-size: 72px;
+      font-weight: 900;
+      letter-spacing: 6px;
+      background: linear-gradient(135deg, #ff6b35, #f7c59f, #ff6b35);
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: logoPulse 3s ease-in-out infinite;
+      text-shadow: none;
+      margin-bottom: 8px;
+    }
+
+    .logo-sub {
+      color: rgba(255,255,255,0.35);
+      font-size: 13px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      margin-bottom: 40px;
+    }
+
+    @keyframes logoPulse {
+      0%, 100% { background-position: 0% 50%; }
+      50%       { background-position: 100% 50%; }
+    }
+
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: #e0e0e0;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 12px;
+    }
+    input:focus { border-color: rgba(255,107,53,0.6); }
+    input::placeholder { color: rgba(255,255,255,0.25); }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: rgba(255,255,255,0.45);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 5px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+    .btn:last-child { margin-bottom: 0; }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #ff6b35, #e04e1f);
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(255,107,53,0.3);
+    }
+    .btn-primary:hover { box-shadow: 0 6px 20px rgba(255,107,53,0.45); }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.75);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.13); color: #fff; }
+
+    .btn-ghost {
+      background: transparent;
+      color: rgba(255,255,255,0.4);
+      font-size: 13px;
+      padding: 8px;
+    }
+    .btn-ghost:hover { color: rgba(255,255,255,0.75); }
+
+    .btn-danger {
+      background: rgba(255, 60, 60, 0.15);
+      color: #ff6b6b;
+      border: 1px solid rgba(255,60,60,0.25);
+    }
+
+    .form-group { margin-bottom: 16px; }
+
+    .error-msg {
+      color: #ff6b6b;
+      font-size: 13px;
+      text-align: center;
+      margin-top: 8px;
+      min-height: 18px;
+    }
+
+    .divider {
+      height: 1px;
+      background: rgba(255,255,255,0.07);
+      margin: 20px 0;
+    }
+
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      color: #fff;
+    }
+
+    /* ── Лобби ── */
+    #lobby-screen { align-items: stretch; padding: 20px; }
+
+    .lobby-layout {
+      display: flex;
+      gap: 16px;
+      height: 100%;
+      flex: 1;
+    }
+
+    .lobby-teams {
+      display: flex;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .team-panel {
+      flex: 1;
+      background: rgba(10,10,20,0.85);
+      border-radius: 12px;
+      padding: 16px;
+      border: 2px solid transparent;
+      display: flex;
+      flex-direction: column;
+    }
+    .team-panel.team-a { border-color: rgba(74,158,255,0.3); }
+    .team-panel.team-b { border-color: rgba(255,74,74,0.3); }
+
+    .team-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .team-dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+    }
+    .team-dot.a { background: #4a9eff; }
+    .team-dot.b { background: #ff4a4a; }
+
+    .team-name { font-weight: 700; font-size: 16px; }
+    .team-count { margin-left: auto; font-size: 12px; color: rgba(255,255,255,0.4); }
+
+    .player-list { flex: 1; overflow-y: auto; }
+
+    .player-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      background: rgba(255,255,255,0.04);
+      font-size: 14px;
+    }
+    .player-item.me { background: rgba(255,255,255,0.09); }
+
+    .player-crown { font-size: 12px; }
+    .player-name { flex: 1; }
+
+    .btn-swap {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.6);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-swap:hover { background: rgba(255,255,255,0.13); color: #fff; }
+
+    .lobby-sidebar {
+      width: 260px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .lobby-box {
+      background: rgba(10,10,20,0.85);
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+
+    .lobby-box h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 12px;
+    }
+
+    .map-selector {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .map-name {
+      flex: 1;
+      text-align: center;
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .map-arrow {
+      background: rgba(255,255,255,0.08);
+      border: none;
+      color: #fff;
+      font-size: 18px;
+      width: 32px; height: 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .map-arrow:hover { background: rgba(255,255,255,0.15); }
+
+    .map-preview {
+      width: 100%;
+      height: 100px;
+      border-radius: 8px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    .share-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .share-url {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .btn-copy {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.07);
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .btn-copy:hover { background: rgba(255,255,255,0.15); }
+
+    .balance-note {
+      font-size: 12px;
+      color: rgba(255,255,255,0.35);
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    #btn-start {
+      margin-top: auto;
+      padding: 14px;
+      font-size: 16px;
+      letter-spacing: 2px;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, #ff6b35, #e04e1f);
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      box-shadow: 0 4px 20px rgba(255,107,53,0.3);
+    }
+    #btn-start:hover { box-shadow: 0 6px 25px rgba(255,107,53,0.5); transform: translateY(-1px); }
+    #btn-start:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ── Загрузка ── */
+    .loading-bar-wrap {
+      width: 300px;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 20px;
+    }
+    .loading-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ff6b35, #f7c59f);
+      border-radius: 2px;
+      transition: width 0.3s;
+    }
+    .loading-text {
+      font-size: 13px;
+      color: rgba(255,255,255,0.4);
+      margin-top: 12px;
+    }
+
+    /* ── Игровой HUD ── */
+    #hud {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .hud-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
+    }
+
+    .hud-team {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 200px;
+    }
+    .hud-team.right { align-items: flex-end; }
+
+    .hud-player-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .hud-team.right .hud-player-row { flex-direction: row-reverse; }
+
+    .hud-hp-bar {
+      width: 80px; height: 5px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .hud-hp-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+
+    .hud-center {
+      text-align: center;
+      flex: 1;
+    }
+
+    .hud-turn-label {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .hud-turn-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .hud-timer {
+      font-size: 32px;
+      font-weight: 900;
+      color: #fff;
+      line-height: 1;
+      transition: color 0.3s;
+    }
+    .hud-timer.urgent { color: #ff4a4a; animation: timerPulse 0.5s infinite; }
+
+    @keyframes timerPulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.08); }
+    }
+
+    .hud-weapons {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+
+    .weapon-slot {
+      width: 52px; height: 52px;
+      background: rgba(0,0,0,0.6);
+      border: 2px solid rgba(255,255,255,0.15);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-size: 22px;
+    }
+    .weapon-slot:hover { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.1); }
+    .weapon-slot.active { border-color: #ff6b35; background: rgba(255,107,53,0.2); }
+    .weapon-key { font-size: 10px; color: rgba(255,255,255,0.4); line-height: 1; }
+
+    .hud-dead-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.5);
+      pointer-events: none;
+    }
+    .hud-dead-msg {
+      font-size: 28px;
+      font-weight: 700;
+      color: #ff4a4a;
+      text-shadow: 0 0 30px #ff4a4a;
+    }
+
+    /* ── GameOver ── */
+    #gameover-screen canvas {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+    }
+
+    .gameover-content {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+    }
+
+    .gameover-title {
+      font-size: 56px;
+      font-weight: 900;
+      letter-spacing: 4px;
+      margin-bottom: 8px;
+    }
+
+    .gameover-subtitle {
+      font-size: 16px;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 32px;
+    }
+
+    .stats-table {
+      width: 500px;
+      border-collapse: collapse;
+      margin-bottom: 32px;
+    }
+    .stats-table th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: rgba(255,255,255,0.35);
+      padding: 6px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .stats-table td {
+      padding: 8px 12px;
+      font-size: 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .stats-table .alive   { color: #4aff88; }
+    .stats-table .dead    { color: rgba(255,255,255,0.3); text-decoration: line-through; }
+
+    .gameover-btns { display: flex; gap: 12px; justify-content: center; }
+    .gameover-btns .btn { width: auto; padding: 12px 28px; margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <!-- Игровые canvas слои -->
+  <canvas id="canvas-bg"></canvas>
+  <canvas id="canvas-terrain"></canvas>
+  <canvas id="canvas-game"></canvas>
+  <canvas id="canvas-effects"></canvas>
+  <canvas id="canvas-ui-game"></canvas>
+
+  <!-- UI overlay -->
+  <div id="ui"></div>
+
+  <!-- Игровой HUD (скрыт до начала игры) -->
+  <div id="hud" style="display:none"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 4 node server/index.js)",
+      "Bash(grep -v \"^\\\\s*//\")",
+      "Bash(npm install *)"
+    ]
+  }
+}

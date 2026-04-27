@@ -1,0 +1,513 @@
+const cfg = require('./config');
+const Terrain = require('./Terrain');
+const Physics = require('./Physics');
+const Weapons = require('./Weapons');
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+
+const TEAM_COLORS = { A: '#4a9eff', B: '#ff4a4a' };
+
+class GameRoom {
+  constructor() {
+    this.players = new Map(); // id → player
+    this.state = 'lobby';     // lobby | loading | playing | gameover
+    this.settings = { map: 'grassland' };
+    this.terrain = null;
+    this.turnQueue = [];      // [playerId, ...]
+    this.turnIndex = 0;
+    this.timer = null;
+    this.tickInterval = null;
+    this.timeLeft = cfg.TURN_TIME;
+    this.projectiles = [];
+  }
+
+  // ─── Connect / Disconnect ────────────────────────────────────────────────
+
+  handleMessage(ws, msg) {
+    switch (msg.type) {
+      case 'join':        return this._onJoin(ws, msg);
+      case 'swap_team':   return this._onSwapTeam(ws);
+      case 'select_map':  return this._onSelectMap(ws, msg);
+      case 'start_game':  return this._onStartGame(ws);
+      case 'move':        return this._onMove(ws, msg);
+      case 'jump':        return this._onJump(ws);
+      case 'fire':        return this._onFire(ws, msg);
+      case 'airstrike':   return this._onAirstrike(ws, msg);
+      case 'place_mine':  return this._onPlaceMine(ws);
+      case 'end_turn':    return this._onEndTurn(ws);
+      case 'rematch':     return this._onRematch(ws);
+    }
+  }
+
+  _onJoin(ws, msg) {
+    if (this.state !== 'lobby') {
+      this._send(ws, { type: 'error', message: 'Game already in progress' });
+      return;
+    }
+    if (this.players.size >= cfg.MAX_PLAYERS) {
+      this._send(ws, { type: 'error', message: 'Server is full' });
+      return;
+    }
+
+    const id = uid();
+    const isHost = this.players.size === 0;
+    const team = this._assignTeam();
+
+    const player = {
+      id,
+      name: (msg.name || 'Player').slice(0, 20),
+      team,
+      ws,
+      isHost,
+      worm: null, // assigned at game start
+      alive: true,
+    };
+
+    this.players.set(id, player);
+    ws._playerId = id;
+
+    // Send full lobby state to the new player
+    this._send(ws, {
+      type: 'joined',
+      id,
+      team,
+      isHost,
+      settings: this.settings,
+      players: this._serializePlayers(),
+    });
+
+    // Notify everyone else
+    this._broadcastExcept(id, {
+      type: 'player_joined',
+      player: this._serializePlayer(player),
+    });
+  }
+
+  removePlayer(ws) {
+    const id = ws._playerId;
+    if (!id || !this.players.has(id)) return;
+
+    const player = this.players.get(id);
+    this.players.delete(id);
+
+    this._broadcast({ type: 'player_left', id });
+
+    // If host left, assign a new one
+    if (player.isHost) {
+      const next = this.players.values().next().value;
+      if (next) {
+        next.isHost = true;
+        this._broadcast({ type: 'host_changed', id: next.id });
+      }
+    }
+
+    // During a game, skip their turn if it was their turn
+    if (this.state === 'playing') {
+      if (player.worm) player.worm.alive = false;
+      this._rebuildTurnQueue();
+      if (this._currentPlayerId() === id) this._nextTurn();
+      this._checkWinCondition();
+    }
+  }
+
+  // ─── Lobby ───────────────────────────────────────────────────────────────
+
+  _onSwapTeam(ws) {
+    const player = this._getPlayer(ws);
+    if (!player || this.state !== 'lobby') return;
+    player.team = player.team === 'A' ? 'B' : 'A';
+    this._broadcast({ type: 'team_swapped', id: player.id, newTeam: player.team });
+  }
+
+  _onSelectMap(ws, msg) {
+    const player = this._getPlayer(ws);
+    if (!player || !player.isHost || this.state !== 'lobby') return;
+    const maps = ['grassland', 'cave', 'island', 'industrial', 'hell', 'snowfield'];
+    if (!maps.includes(msg.map)) return;
+    this.settings.map = msg.map;
+    this._broadcast({ type: 'settings', settings: this.settings });
+  }
+
+  _onStartGame(ws) {
+    const player = this._getPlayer(ws);
+    if (!player || !player.isHost || this.state !== 'lobby') return;
+
+    const teams = this._getTeams();
+    if (teams.A.length === 0 || teams.B.length === 0) {
+      this._send(ws, { type: 'error', message: 'Need at least 1 player on each team' });
+      return;
+    }
+
+    this.state = 'loading';
+    this._broadcast({ type: 'loading', map: this.settings.map });
+
+    // Generate terrain synchronously with a small UX delay
+    setTimeout(() => this._initGame(), 100);
+  }
+
+  _initGame() {
+    // Apply HP balance bonus
+    const teams = this._getTeams();
+    const diff = Math.abs(teams.A.length - teams.B.length);
+    const smallerTeam = teams.A.length < teams.B.length ? 'A' : 'B';
+
+    // Create worms
+    this.players.forEach(p => {
+      const baseHp = cfg.WORM_HP;
+      const hp = (diff >= 2 && p.team === smallerTeam)
+        ? Math.round(baseHp * cfg.HP_BALANCE_BONUS)
+        : baseHp;
+
+      p.alive = true;
+      p.worm = {
+        id: p.id,
+        name: p.name,
+        team: p.team,
+        x: 0, y: 0,   // positions set after terrain generation
+        vx: 0, vy: 0,
+        onGround: false,
+        hp,
+        maxHp: hp,
+        alive: true,
+        weapon: 'grenade',
+        fallStartY: null,
+      };
+    });
+
+    // Terrain
+    this.terrain = new Terrain(this.settings.map);
+    this._spawnWorms();
+
+    // Turn queue: interleave A/B
+    this._buildTurnQueue();
+
+    const rle = this.terrain.serialize();
+    const worms = this._serializeWorms();
+    const turnQueue = this.turnQueue;
+
+    this._broadcast({ type: 'terrain', rle });
+    this._broadcast({ type: 'game_start', worms, turnQueue });
+
+    this.state = 'playing';
+    this._startTurn();
+  }
+
+  _spawnWorms() {
+    const teams = this._getTeams();
+    const w = cfg.TERRAIN_WIDTH;
+
+    // Spread worms evenly across the map
+    const spawnX = (index, total) => Math.round((index + 1) * w / (total + 1));
+
+    let iA = 0, iB = 0;
+    this.players.forEach(p => {
+      const worm = p.worm;
+      if (p.team === 'A') {
+        worm.x = spawnX(iA++, teams.A.length);
+      } else {
+        worm.x = spawnX(iB++, teams.B.length);
+      }
+      worm.y = this.terrain.getHeightAt(worm.x) - 20;
+    });
+  }
+
+  // ─── Turn system ─────────────────────────────────────────────────────────
+
+  _buildTurnQueue() {
+    const teams = this._getTeams();
+    const maxLen = Math.max(teams.A.length, teams.B.length);
+    this.turnQueue = [];
+    for (let i = 0; i < maxLen; i++) {
+      if (i < teams.A.length) this.turnQueue.push(teams.A[i].id);
+      if (i < teams.B.length) this.turnQueue.push(teams.B[i].id);
+    }
+    this.turnIndex = 0;
+  }
+
+  _rebuildTurnQueue() {
+    this.turnQueue = this.turnQueue.filter(id => {
+      const p = this.players.get(id);
+      return p && p.worm && p.worm.alive;
+    });
+  }
+
+  _currentPlayerId() {
+    if (this.turnQueue.length === 0) return null;
+    return this.turnQueue[this.turnIndex % this.turnQueue.length];
+  }
+
+  _startTurn() {
+    this._rebuildTurnQueue();
+    if (this.turnQueue.length === 0) return;
+
+    this.timeLeft = cfg.TURN_TIME;
+    const currentId = this._currentPlayerId();
+
+    this._broadcast({ type: 'turn_start', playerId: currentId, timeLeft: this.timeLeft });
+
+    // Turn timer
+    clearInterval(this.timer);
+    this.timer = setInterval(() => {
+      this.timeLeft--;
+      if (this.timeLeft <= 0) {
+        clearInterval(this.timer);
+        this._nextTurn();
+      } else {
+        this._broadcast({ type: 'timer', timeLeft: this.timeLeft });
+      }
+    }, 1000);
+
+    // State broadcast tick
+    clearInterval(this.tickInterval);
+    this.tickInterval = setInterval(() => this._tickPhysics(), cfg.TICK_RATE);
+  }
+
+  _nextTurn() {
+    clearInterval(this.timer);
+    this._broadcast({ type: 'turn_end' });
+
+    this._rebuildTurnQueue();
+    if (this.turnQueue.length === 0) return;
+
+    this.turnIndex = (this.turnIndex + 1) % this.turnQueue.length;
+
+    // Brief pause before next turn
+    setTimeout(() => this._startTurn(), 1500);
+  }
+
+  _onEndTurn(ws) {
+    const player = this._getPlayer(ws);
+    if (!player || this.state !== 'playing') return;
+    if (player.id !== this._currentPlayerId()) return;
+    clearInterval(this.timer);
+    this._nextTurn();
+  }
+
+  // ─── Physics tick ────────────────────────────────────────────────────────
+
+  _tickPhysics() {
+    let changed = false;
+
+    this.players.forEach(p => {
+      if (!p.worm || !p.worm.alive) return;
+      const moved = Physics.step(p.worm, this.terrain);
+      if (moved) changed = true;
+    });
+
+    // Projectiles
+    const toRemove = [];
+    this.projectiles.forEach((proj, i) => {
+      const result = Physics.stepProjectile(proj, this.terrain, this._getAliveWorms());
+      if (result.exploded) {
+        this._handleExplosion(result);
+        toRemove.push(i);
+      } else if (result.moved) {
+        changed = true;
+      }
+    });
+    toRemove.reverse().forEach(i => this.projectiles.splice(i, 1));
+
+    if (changed) {
+      this._broadcast({ type: 'state', worms: this._serializeWorms() });
+    }
+  }
+
+  // ─── Player actions ──────────────────────────────────────────────────────
+
+  _onMove(ws, msg) {
+    const player = this._getPlayer(ws);
+    if (!player || !this._isCurrentPlayer(player)) return;
+    Physics.moveWorm(player.worm, msg.direction, this.terrain);
+    this._broadcast({ type: 'state', worms: this._serializeWorms() });
+  }
+
+  _onJump(ws) {
+    const player = this._getPlayer(ws);
+    if (!player || !this._isCurrentPlayer(player)) return;
+    Physics.jumpWorm(player.worm);
+    this._broadcast({ type: 'state', worms: this._serializeWorms() });
+  }
+
+  _onFire(ws, msg) {
+    const player = this._getPlayer(ws);
+    if (!player || !this._isCurrentPlayer(player)) return;
+
+    const proj = Weapons.createProjectile(
+      player.worm,
+      msg.weapon || player.worm.weapon,
+      msg.angle,
+      msg.power
+    );
+    if (proj) {
+      this.projectiles.push(proj);
+      this._broadcast({ type: 'projectile', ...proj });
+    }
+
+    // End turn after a short animation delay
+    clearInterval(this.timer);
+    setTimeout(() => this._nextTurn(), 3000);
+  }
+
+  _onAirstrike(ws, msg) {
+    const player = this._getPlayer(ws);
+    if (!player || !this._isCurrentPlayer(player)) return;
+
+    const projs = Weapons.createAirstrike(msg.x, this.terrain);
+    projs.forEach(p => {
+      this.projectiles.push(p);
+      this._broadcast({ type: 'projectile', ...p });
+    });
+
+    clearInterval(this.timer);
+    setTimeout(() => this._nextTurn(), 4000);
+  }
+
+  _onPlaceMine(ws) {
+    const player = this._getPlayer(ws);
+    if (!player || !this._isCurrentPlayer(player)) return;
+
+    const mine = Weapons.createMine(player.worm);
+    this.projectiles.push(mine);
+    this._broadcast({ type: 'mine_placed', x: mine.x, y: mine.y, id: mine.id });
+
+    clearInterval(this.timer);
+    setTimeout(() => this._nextTurn(), 500);
+  }
+
+  _onRematch(ws) {
+    const player = this._getPlayer(ws);
+    if (!player || !player.isHost) return;
+
+    clearInterval(this.timer);
+    clearInterval(this.tickInterval);
+    this.projectiles = [];
+    this.turnQueue = [];
+    this.state = 'lobby';
+
+    this.players.forEach(p => { p.worm = null; p.alive = true; });
+    this._broadcast({ type: 'rematch', players: this._serializePlayers() });
+  }
+
+  // ─── Explosion ───────────────────────────────────────────────────────────
+
+  _handleExplosion(result) {
+    const { x, y, radius, maxDamage } = result;
+    const damages = [];
+
+    this._getAliveWorms().forEach(worm => {
+      const dist = Math.hypot(worm.x - x, worm.y - y);
+      if (dist < radius) {
+        const dmg = Math.round(maxDamage * (1 - dist / radius));
+        if (dmg > 0) {
+          worm.hp = Math.max(0, worm.hp - dmg);
+          // Knockback
+          const angle = Math.atan2(worm.y - y, worm.x - x);
+          worm.vx += Math.cos(angle) * 8;
+          worm.vy += Math.sin(angle) * 8 - 4;
+          damages.push({ id: worm.id, dmg, hp: worm.hp });
+          if (worm.hp <= 0) this._killWorm(worm.id);
+        }
+      }
+    });
+
+    this.terrain.carveCircle(x, y, radius);
+    const rleUpdate = this.terrain.serializeRegion(x - radius - 5, y - radius - 5, radius * 2 + 10, radius * 2 + 10);
+
+    this._broadcast({ type: 'explosion', x, y, radius, damages });
+    this._broadcast({ type: 'terrain_update', x: Math.floor(x - radius - 5), y: Math.floor(y - radius - 5), rle: rleUpdate });
+
+    this._checkWinCondition();
+  }
+
+  _killWorm(id) {
+    const player = this.players.get(id);
+    if (!player || !player.worm) return;
+    player.worm.alive = false;
+    player.worm.hp = 0;
+    player.alive = false;
+    this._broadcast({ type: 'worm_died', id });
+  }
+
+  _checkWinCondition() {
+    const teams = this._getTeams();
+    const aAlive = teams.A.filter(p => p.worm && p.worm.alive).length;
+    const bAlive = teams.B.filter(p => p.worm && p.worm.alive).length;
+
+    if (aAlive === 0 || bAlive === 0) {
+      const winner = aAlive > 0 ? 'A' : 'B';
+      clearInterval(this.timer);
+      clearInterval(this.tickInterval);
+      this.state = 'gameover';
+
+      const stats = [];
+      this.players.forEach(p => {
+        stats.push({ id: p.id, name: p.name, team: p.team, alive: p.worm && p.worm.alive });
+      });
+
+      this._broadcast({ type: 'game_over', winner, stats });
+    }
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  _getPlayer(ws) {
+    return this.players.get(ws._playerId);
+  }
+
+  _isCurrentPlayer(player) {
+    return this.state === 'playing' && player.id === this._currentPlayerId();
+  }
+
+  _getTeams() {
+    const A = [], B = [];
+    this.players.forEach(p => (p.team === 'A' ? A : B).push(p));
+    return { A, B };
+  }
+
+  _getAliveWorms() {
+    const worms = [];
+    this.players.forEach(p => { if (p.worm && p.worm.alive) worms.push(p.worm); });
+    return worms;
+  }
+
+  _assignTeam() {
+    const teams = this._getTeams();
+    return teams.A.length <= teams.B.length ? 'A' : 'B';
+  }
+
+  _serializePlayers() {
+    return [...this.players.values()].map(p => this._serializePlayer(p));
+  }
+
+  _serializePlayer(p) {
+    return { id: p.id, name: p.name, team: p.team, isHost: p.isHost };
+  }
+
+  _serializeWorms() {
+    const worms = [];
+    this.players.forEach(p => {
+      if (p.worm) worms.push({ ...p.worm, ws: undefined });
+    });
+    return worms;
+  }
+
+  _send(ws, msg) {
+    if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+  }
+
+  _broadcast(msg) {
+    const data = JSON.stringify(msg);
+    this.players.forEach(p => {
+      if (p.ws.readyState === 1) p.ws.send(data);
+    });
+  }
+
+  _broadcastExcept(excludeId, msg) {
+    const data = JSON.stringify(msg);
+    this.players.forEach(p => {
+      if (p.id !== excludeId && p.ws.readyState === 1) p.ws.send(data);
+    });
+  }
+}
+
+module.exports = GameRoom;
