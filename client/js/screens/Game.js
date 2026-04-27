@@ -154,10 +154,14 @@ export default class GameScreen {
       if (w.hurtFlash > 0) w.hurtFlash--;
     });
 
-    // Camera: следить за активным червём
+    // Camera: follow active worm, or airstrike cursor when that weapon is selected
     const targetWorm = this._worms[this._currentId || this._myId];
     if (targetWorm) {
-      this._renderer.followTarget(targetWorm.x, targetWorm.y);
+      if (this._myTurn && this._input && this._input.getWeapon() === 'airstrike') {
+        this._renderer.followTarget(this._input.getAirstrikeX(), targetWorm.y);
+      } else {
+        this._renderer.followTarget(targetWorm.x, targetWorm.y);
+      }
     }
 
     this._sound.setCameraX(this._renderer.camX);
