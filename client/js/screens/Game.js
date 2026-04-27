@@ -50,6 +50,10 @@ export default class GameScreen {
     this._ui.setOnWeaponSelect(w => {
       if (this._input) this._input.setWeapon(w);
     });
+    this._ui.setOnLeave(() => {
+      net.disconnect();
+      showScreen('mainMenu');
+    });
 
     // Load terrain
     const rle = window._mudhole_terrain;
@@ -69,6 +73,15 @@ export default class GameScreen {
       () => this._renderer
     );
     document.getElementById('canvas-ui-game').style.pointerEvents = 'auto';
+
+    // turn_start arrives before Game.js registers its handler (Loading.js has a 300ms delay).
+    // Seed the first turn from the data already embedded in game_start.
+    if (startData && startData.currentPlayerId) {
+      this._currentId = startData.currentPlayerId;
+      this._timeLeft  = startData.timeLeft || 30;
+      this._myTurn    = this._currentId === this._myId;
+      this._input.setTurn(this._myTurn);
+    }
 
     // Weapon change
     window.addEventListener('weapon_changed', this._onWeaponChanged = (e) => {

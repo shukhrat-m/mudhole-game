@@ -13,10 +13,12 @@ export default class UI {
     this._myTurn = false;
     this._activeWeapon = 'grenade';
     this._onWeaponSelect = null;
+    this._onLeave = null;
     this._render();
   }
 
   setOnWeaponSelect(fn) { this._onWeaponSelect = fn; }
+  setOnLeave(fn)        { this._onLeave = fn; }
 
   update({ worms, currentPlayerId, myId, timeLeft, myTurn }) {
     this._myTurn = myTurn;
@@ -100,6 +102,14 @@ export default class UI {
             Team B
           </div>
         </div>
+
+        <button id="hud-leave" style="
+          position:absolute;top:10px;right:12px;
+          background:rgba(255,60,60,0.18);border:1px solid rgba(255,60,60,0.3);
+          color:rgba(255,255,255,0.55);border-radius:6px;
+          padding:4px 10px;font-size:11px;cursor:pointer;
+          pointer-events:auto;transition:all 0.15s;
+        ">✕ Leave</button>
       </div>
 
       <div class="hud-weapons" id="hud-weapons" style="display:none">
@@ -112,7 +122,6 @@ export default class UI {
       </div>
     `;
 
-    // Клики по оружиям
     this._hud.querySelectorAll('.weapon-slot').forEach(el => {
       el.onclick = () => {
         const w = el.dataset.weapon;
@@ -120,6 +129,13 @@ export default class UI {
         if (this._onWeaponSelect) this._onWeaponSelect(w);
       };
     });
+
+    const leaveBtn = document.getElementById('hud-leave');
+    if (leaveBtn) {
+      leaveBtn.onmouseenter = () => { leaveBtn.style.color = '#fff'; leaveBtn.style.background = 'rgba(255,60,60,0.4)'; };
+      leaveBtn.onmouseleave = () => { leaveBtn.style.color = 'rgba(255,255,255,0.55)'; leaveBtn.style.background = 'rgba(255,60,60,0.18)'; };
+      leaveBtn.onclick = () => { if (this._onLeave) this._onLeave(); };
+    }
   }
 
   showDead() {

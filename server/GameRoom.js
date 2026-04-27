@@ -122,13 +122,8 @@ class GameRoom {
     this._broadcast({ type: 'team_swapped', id: player.id, newTeam: player.team });
   }
 
-  _onSelectMap(ws, msg) {
-    const player = this._getPlayer(ws);
-    if (!player || !player.isHost || this.state !== 'lobby') return;
-    const maps = ['grassland', 'cave', 'island', 'industrial', 'hell', 'snowfield'];
-    if (!maps.includes(msg.map)) return;
-    this.settings.map = msg.map;
-    this._broadcast({ type: 'settings', settings: this.settings });
+  _onSelectMap() {
+    // Map selection disabled — grassland only
   }
 
   _onStartGame(ws) {
@@ -187,9 +182,10 @@ class GameRoom {
     const rle = this.terrain.serialize();
     const worms = this._serializeWorms();
     const turnQueue = this.turnQueue;
+    const currentPlayerId = turnQueue[0] || null;
 
     this._broadcast({ type: 'terrain', rle });
-    this._broadcast({ type: 'game_start', worms, turnQueue });
+    this._broadcast({ type: 'game_start', worms, turnQueue, currentPlayerId, timeLeft: cfg.TURN_TIME });
 
     this.state = 'playing';
     this._startTurn();
@@ -430,10 +426,10 @@ class GameRoom {
     });
 
     this.terrain.carveCircle(x, y, radius);
-    const rleUpdate = this.terrain.serializeRegion(x - radius - 5, y - radius - 5, radius * 2 + 10, radius * 2 + 10);
+    const regionData = this.terrain.serializeRegion(x - radius - 5, y - radius - 5, radius * 2 + 10, radius * 2 + 10);
 
     this._broadcast({ type: 'explosion', x, y, radius, damages });
-    this._broadcast({ type: 'terrain_update', x: Math.floor(x - radius - 5), y: Math.floor(y - radius - 5), rle: rleUpdate });
+    this._broadcast({ type: 'terrain_update', ...regionData });
 
     this._checkWinCondition();
   }
