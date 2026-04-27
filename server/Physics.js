@@ -36,7 +36,18 @@ const Physics = {
   // Single physics step for a worm (called every tick)
   step(worm, terrain) {
     if (!worm.alive) return false;
-    let moved = false;
+
+    // Firmly on ground — skip gravity to prevent snap oscillation
+    if (worm.onGround && terrain.isBlocked(worm.x, worm.y + 1)) {
+      worm.vy = 0;
+      return false;
+    }
+
+    // Ground disappeared under the worm (explosion carved it away)
+    if (worm.onGround) {
+      worm.onGround = false;
+      worm.fallStartY = worm.y;
+    }
 
     // Gravity
     worm.vy = Math.min(worm.vy + cfg.GRAVITY, 20);
@@ -44,7 +55,7 @@ const Physics = {
     // Y movement
     const ny = worm.y + worm.vy;
     if (terrain.isBlocked(worm.x, ny)) {
-      // Landing
+      // Landing — calculate fall damage
       if (worm.vy > 0 && worm.fallStartY !== null) {
         const fallDist = ny - worm.fallStartY;
         if (fallDist > cfg.FALL_DAMAGE_THRESHOLD) {
@@ -53,16 +64,16 @@ const Physics = {
         }
         worm.fallStartY = null;
       }
+      worm.y = ny; // move into terrain first, then snap will push out
       worm.vy = 0;
       worm.onGround = true;
       this._snapToGround(worm, terrain);
-      moved = true;
-    } else {
-      if (worm.vy < 0 && worm.fallStartY === null) worm.fallStartY = worm.y;
-      worm.y = ny;
-      worm.onGround = false;
-      moved = true;
+      return true;
     }
+
+    if (worm.vy < 0 && worm.fallStartY === null) worm.fallStartY = worm.y;
+    worm.y = ny;
+    worm.onGround = false;
 
     // Death by water or out of bounds
     if (worm.y > cfg.WATER_LEVEL || worm.y < 0) {
@@ -70,19 +81,17 @@ const Physics = {
       worm.alive = false;
     }
 
-    return moved;
+    return true;
   },
 
   _snapToGround(worm, terrain) {
-    // Push worm to surface (not inside terrain and not floating)
-    for (let dy = -3; dy <= 3; dy++) {
-      if (!terrain.isBlocked(worm.x, worm.y + dy)) {
-        worm.y = worm.y + dy;
-        break;
-      }
-    }
-    // Ensure worm is not inside ground
+    // Push up out of terrain
     while (terrain.isBlocked(worm.x, worm.y) && worm.y > 0) worm.y--;
+    // Settle down onto surface (handles gap after slope climb, max 4px)
+    for (let i = 0; i < 4; i++) {
+      if (!terrain.isBlocked(worm.x, worm.y + 1)) worm.y++;
+      else break;
+    }
   },
 
   // ─── Projectiles ─────────────────────────────────────────────────────────

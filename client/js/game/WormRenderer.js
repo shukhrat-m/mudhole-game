@@ -28,8 +28,7 @@ export default class WormRenderer {
     } else if (worm.anim === 'land') {
       sx = 1.35; sy = 0.75;
     } else {
-      // Idle покачивание
-      sy = 1 + Math.sin(t * 0.05) * 0.03;
+      sx = 1; sy = 1;
     }
 
     ctx.save();
