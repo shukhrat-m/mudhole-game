@@ -193,21 +193,37 @@ class GameRoom {
   }
 
   _spawnWorms() {
-    const teams = this._getTeams();
+    const total = this.players.size;
     const w = cfg.TERRAIN_WIDTH;
+    const margin = 80;
+    const minDist = 130;
 
-    // Spread worms evenly across the map
-    const spawnX = (index, total) => Math.round((index + 1) * w / (total + 1));
-
-    let iA = 0, iB = 0;
-    this.players.forEach(p => {
-      const worm = p.worm;
-      if (p.team === 'A') {
-        worm.x = spawnX(iA++, teams.A.length);
-      } else {
-        worm.x = spawnX(iB++, teams.B.length);
+    // Generate random, well-separated X positions
+    const positions = [];
+    let attempts = 0;
+    while (positions.length < total && attempts < 3000) {
+      const x = margin + Math.floor(Math.random() * (w - margin * 2));
+      if (positions.every(p => Math.abs(p - x) >= minDist)) {
+        positions.push(x);
       }
-      worm.y = this.terrain.getHeightAt(worm.x) - 20;
+      attempts++;
+    }
+    // Fallback: evenly spaced if random couldn't place everyone
+    while (positions.length < total) {
+      const i = positions.length;
+      positions.push(Math.round((i + 1) * w / (total + 1)));
+    }
+
+    // Shuffle so teams aren't always on the same side
+    for (let i = positions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [positions[i], positions[j]] = [positions[j], positions[i]];
+    }
+
+    let idx = 0;
+    this.players.forEach(p => {
+      p.worm.x = positions[idx++];
+      p.worm.y = this.terrain.getHeightAt(p.worm.x) - 20;
     });
   }
 

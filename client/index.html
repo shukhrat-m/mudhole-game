@@ -549,6 +549,59 @@
 
     .gameover-btns { display: flex; gap: 12px; justify-content: center; }
     .gameover-btns .btn { width: auto; padding: 12px 28px; margin-bottom: 0; }
+
+    /* ── Mobile virtual controls ── */
+    .mc-group {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      pointer-events: auto;
+    }
+
+    .mc-btn {
+      width: 60px;
+      height: 60px;
+      border-radius: 14px;
+      border: none;
+      background: rgba(0, 0, 0, 0.65);
+      color: #fff;
+      font-size: 22px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12);
+      transition: opacity 0.1s;
+      pointer-events: auto;
+    }
+    .mc-btn:active { opacity: 0.6; }
+
+    .mc-jump-btn {
+      width: 52px;
+      height: 52px;
+      font-size: 18px;
+      background: rgba(30, 80, 160, 0.7);
+    }
+
+    .mc-fire-btn {
+      width: 70px;
+      height: 70px;
+      font-size: 15px;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, rgba(200,60,20,0.85), rgba(255,100,40,0.85));
+      box-shadow: 0 3px 12px rgba(255,80,20,0.4), inset 0 1px 0 rgba(255,255,255,0.15);
+    }
+
+    .mc-end-btn {
+      width: 56px;
+      height: 56px;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      background: rgba(60, 60, 80, 0.7);
+    }
   </style>
 </head>
 <body>
