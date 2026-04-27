@@ -344,6 +344,10 @@ export default class GameScreen {
     this._myTurn    = msg.playerId === this._myId;
     if (this._input) this._input.setTurn(this._myTurn);
     this._projList = [];
+
+    // Snap camera to the newly active worm so the pan is instant
+    const worm = this._worms[msg.playerId];
+    if (worm && this._renderer) this._renderer.snapTo(worm.x, worm.y);
   }
 
   _onTurnEnd() {

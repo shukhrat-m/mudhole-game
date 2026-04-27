@@ -278,6 +278,12 @@ export default class Renderer {
     this.camY = Math.max(0, Math.min(H_FULL * this.zoom - H, this.camY));
   }
 
+  snapTo(tx, ty) {
+    const W = this.gameCanvas.width, H = this.gameCanvas.height;
+    this.camX = Math.max(0, Math.min(W_FULL * this.zoom - W, tx * this.zoom - W / 2));
+    this.camY = Math.max(0, Math.min(H_FULL * this.zoom - H, ty * this.zoom - H / 2));
+  }
+
   triggerShake(intensity) {
     this.shake.intensity = Math.min(20, this.shake.intensity + intensity);
   }
