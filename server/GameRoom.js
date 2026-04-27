@@ -255,6 +255,7 @@ class GameRoom {
     this._rebuildTurnQueue();
     if (this.turnQueue.length === 0) return;
 
+    this._shotFired = false;
     this.timeLeft = cfg.TURN_TIME;
     const currentId = this._currentPlayerId();
 
@@ -346,6 +347,8 @@ class GameRoom {
   _onFire(ws, msg) {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
+    if (this._shotFired) return;
+    this._shotFired = true;
 
     const proj = Weapons.createProjectile(
       player.worm,
@@ -366,6 +369,8 @@ class GameRoom {
   _onAirstrike(ws, msg) {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
+    if (this._shotFired) return;
+    this._shotFired = true;
 
     const projs = Weapons.createAirstrike(msg.x, this.terrain);
     projs.forEach(p => {
@@ -380,6 +385,8 @@ class GameRoom {
   _onPlaceMine(ws) {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
+    if (this._shotFired) return;
+    this._shotFired = true;
 
     const mine = Weapons.createMine(player.worm);
     this.projectiles.push(mine);

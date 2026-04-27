@@ -1,3 +1,5 @@
+const MAP_W = 3840;
+
 export default class InputHandler {
   constructor(canvas, net, getMyWorm, getRenderer) {
     this._canvas      = canvas;
@@ -6,8 +8,10 @@ export default class InputHandler {
     this._getRenderer = getRenderer;
     this._keys        = new Set();
     this._aimAngle    = 0;
+    this._airstrikeX  = 0;
     this._mouseWorld  = { x: 0, y: 0 };
     this._myTurn      = false;
+    this._hasFired    = false;
     this._moveInterval = null;
     this._moveDir     = null;
     this._aimInterval  = null;
@@ -35,23 +39,37 @@ export default class InputHandler {
   }
 
   setTurn(isMyTurn) {
-    this._myTurn = isMyTurn;
+    this._myTurn   = isMyTurn;
+    this._hasFired = false;
     if (!isMyTurn) { this._stopMove(); this._stopAim(); this._keys.clear(); }
     if (this._mobileEl) {
       this._mobileEl.style.display = (isMyTurn && this._isTouch) ? 'flex' : 'none';
     }
   }
 
-  setWeapon(weapon) { this._weapon = weapon; }
-  getAimAngle()     { return this._aimAngle; }
-  getMouseWorld()   { return this._mouseWorld; }
-  getWeapon()       { return this._weapon; }
+  setWeapon(weapon) {
+    this._weapon = weapon;
+    if (weapon === 'airstrike') {
+      const worm = this._getMyWorm();
+      this._airstrikeX = worm ? worm.x : MAP_W / 2;
+    }
+  }
 
-  // Called every frame from Game._update(dt) — handles held ↑↓ aim keys
+  getAimAngle()    { return this._aimAngle; }
+  getAirstrikeX()  { return this._airstrikeX; }
+  getMouseWorld()  { return this._mouseWorld; }
+  getWeapon()      { return this._weapon; }
+
+  // Called every frame — handles held ↑↓ keys
   tick(dt) {
-    if (!this._myTurn) return;
-    if (this._keys.has('ArrowUp'))   this._aimAngle -= 0.04 * dt;
-    if (this._keys.has('ArrowDown')) this._aimAngle += 0.04 * dt;
+    if (!this._myTurn || this._hasFired) return;
+    if (this._weapon === 'airstrike') {
+      if (this._keys.has('ArrowUp'))   this._airstrikeX = Math.max(0, this._airstrikeX - 8 * dt);
+      if (this._keys.has('ArrowDown')) this._airstrikeX = Math.min(MAP_W, this._airstrikeX + 8 * dt);
+    } else {
+      if (this._keys.has('ArrowUp'))   this._aimAngle -= 0.04 * dt;
+      if (this._keys.has('ArrowDown')) this._aimAngle += 0.04 * dt;
+    }
   }
 
   destroy() {
@@ -75,20 +93,20 @@ export default class InputHandler {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        this._startMove('left');
+        if (!this._hasFired) this._startMove('left');
         break;
       case 'ArrowRight':
         e.preventDefault();
-        this._startMove('right');
+        if (!this._hasFired) this._startMove('right');
         break;
       case 'ArrowUp':
       case 'ArrowDown':
         e.preventDefault();
-        // aim rotation handled in tick()
+        // handled by tick()
         break;
       case ' ':
         e.preventDefault();
-        this._net.send({ type: 'jump' });
+        if (!this._hasFired) this._net.send({ type: 'jump' });
         break;
       case 'Enter':
         e.preventDefault();
@@ -121,7 +139,7 @@ export default class InputHandler {
     this._net.send({ type: 'move', direction: dir });
     if (!this._moveInterval) {
       this._moveInterval = setInterval(() => {
-        if (this._moveDir && this._myTurn) {
+        if (this._moveDir && this._myTurn && !this._hasFired) {
           this._net.send({ type: 'move', direction: this._moveDir });
         }
       }, 80);
@@ -144,7 +162,7 @@ export default class InputHandler {
   _onMouse(e) { this._updateAim(e.clientX, e.clientY); }
 
   _onClick(e) {
-    if (!this._myTurn) return;
+    if (!this._myTurn || this._hasFired) return;
     this._fire();
   }
 
@@ -158,36 +176,43 @@ export default class InputHandler {
 
   _onTouchEnd(e) {
     e.preventDefault();
-    if (!this._myTurn) return;
+    if (!this._myTurn || this._hasFired) return;
     const t = e.changedTouches[0];
     if (!t) return;
     this._updateAim(t.clientX, t.clientY);
-    if (this._weapon === 'airstrike') {
-      this._net.send({ type: 'airstrike', x: Math.round(this._mouseWorld.x) });
-    }
+    if (this._weapon === 'airstrike') this._fire();
   }
 
-  // ── Shared aim & fire ─────────────────────────────────────────────────────
+  // ── Aim & fire ────────────────────────────────────────────────────────────
 
   _updateAim(clientX, clientY) {
     const renderer = this._getRenderer();
     if (!renderer) return;
     const rect = this._canvas.getBoundingClientRect();
     this._mouseWorld = renderer.screenToWorld(clientX - rect.left, clientY - rect.top);
-    const worm = this._getMyWorm();
-    if (worm) {
-      this._aimAngle = Math.atan2(
-        this._mouseWorld.y - (worm.y - 20),
-        this._mouseWorld.x - worm.x
-      );
+
+    if (this._weapon === 'airstrike') {
+      this._airstrikeX = this._mouseWorld.x;
+    } else {
+      const worm = this._getMyWorm();
+      if (worm) {
+        this._aimAngle = Math.atan2(
+          this._mouseWorld.y - (worm.y - 20),
+          this._mouseWorld.x - worm.x
+        );
+      }
     }
   }
 
   _fire() {
+    if (this._hasFired) return;
     const worm = this._getMyWorm();
     if (!worm || !worm.alive) return;
+    this._hasFired = true;
+    this._stopMove();
+
     if (this._weapon === 'airstrike') {
-      this._net.send({ type: 'airstrike', x: Math.round(this._mouseWorld.x) });
+      this._net.send({ type: 'airstrike', x: Math.round(this._airstrikeX) });
       return;
     }
     if (this._weapon === 'mine') {
@@ -201,6 +226,10 @@ export default class InputHandler {
 
   _selectWeapon(w) {
     this._weapon = w;
+    if (w === 'airstrike') {
+      const worm = this._getMyWorm();
+      this._airstrikeX = worm ? worm.x : MAP_W / 2;
+    }
     window.dispatchEvent(new CustomEvent('weapon_changed', { detail: w }));
   }
 
@@ -234,17 +263,18 @@ export default class InputHandler {
 
     this._holdBtn('mc-left',  () => this._startMove('left'),  () => this._stopMove());
     this._holdBtn('mc-right', () => this._startMove('right'), () => this._stopMove());
-    this._tapBtn ('mc-jump',  () => this._net.send({ type: 'jump' }));
+    this._tapBtn ('mc-jump',  () => { if (!this._hasFired) this._net.send({ type: 'jump' }); });
     this._tapBtn ('mc-fire',  () => this._fire());
     this._tapBtn ('mc-end',   () => this._net.send({ type: 'end_turn' }));
-    this._holdAimBtn('mc-aim-up',   -0.05);
-    this._holdAimBtn('mc-aim-down',  0.05);
+    // ↑ aims up (or moves airstrike left); ↓ aims down (or moves airstrike right)
+    this._holdAimBtn('mc-aim-up',   -0.05, -12);
+    this._holdAimBtn('mc-aim-down',  0.05,  12);
   }
 
   _holdBtn(id, onStart, onEnd) {
     const btn = document.getElementById(id);
     if (!btn) return;
-    btn.addEventListener('touchstart',  (e) => { e.preventDefault(); if (this._myTurn) onStart(); }, { passive: false });
+    btn.addEventListener('touchstart',  (e) => { e.preventDefault(); if (this._myTurn && !this._hasFired) onStart(); }, { passive: false });
     btn.addEventListener('touchend',    (e) => { e.preventDefault(); onEnd(); }, { passive: false });
     btn.addEventListener('touchcancel', (e) => { e.preventDefault(); onEnd(); }, { passive: false });
   }
@@ -255,14 +285,20 @@ export default class InputHandler {
     btn.addEventListener('touchstart', (e) => { e.preventDefault(); if (this._myTurn) fn(); }, { passive: false });
   }
 
-  _holdAimBtn(id, delta) {
+  _holdAimBtn(id, angleDelta, xDelta) {
     const btn = document.getElementById(id);
     if (!btn) return;
     const start = (e) => {
       e.preventDefault();
-      if (!this._myTurn) return;
+      if (!this._myTurn || this._hasFired) return;
       this._stopAim();
-      this._aimInterval = setInterval(() => { this._aimAngle += delta; }, 30);
+      this._aimInterval = setInterval(() => {
+        if (this._weapon === 'airstrike') {
+          this._airstrikeX = Math.max(0, Math.min(MAP_W, this._airstrikeX + xDelta));
+        } else {
+          this._aimAngle += angleDelta;
+        }
+      }, 30);
     };
     const stop = (e) => { e.preventDefault(); this._stopAim(); };
     btn.addEventListener('touchstart',  start, { passive: false });

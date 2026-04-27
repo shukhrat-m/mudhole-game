@@ -339,4 +339,13 @@ export default class Renderer {
       y: (sy + this.camY) / this.zoom,
     };
   }
+
+  getTerrainSurfaceY(x) {
+    const ix = Math.max(0, Math.min(W_FULL - 1, Math.floor(x)));
+    if (!this.mask) return Math.round(H_FULL * 0.75);
+    for (let y = 0; y < H_FULL; y++) {
+      if (this.mask[y * W_FULL + ix] === 1) return y;
+    }
+    return H_FULL - 1;
+  }
 }

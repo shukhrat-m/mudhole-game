@@ -223,60 +223,109 @@ export default class GameScreen {
     r.clearUiGame();
   }
 
-  // ─── Aim line ────────────────────────────────────────────────────────────
+  // ─── Aim indicators ──────────────────────────────────────────────────────
 
   _drawAimLine(ctx, worm, angle) {
     const weapon = this._input ? this._input.getWeapon() : 'grenade';
 
     if (weapon === 'airstrike') {
-      const mw = this._input.getMouseWorld();
-      ctx.strokeStyle = 'rgba(255,100,100,0.6)';
+      const ax = this._input.getAirstrikeX();
+      // Vertical drop line
+      ctx.strokeStyle = 'rgba(255,60,60,0.65)';
       ctx.lineWidth = 2;
-      ctx.setLineDash([8, 8]);
-      ctx.beginPath();
-      ctx.moveTo(mw.x, 0);
-      ctx.lineTo(mw.x, H);
-      ctx.stroke();
+      ctx.setLineDash([10, 7]);
+      ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, H); ctx.stroke();
       ctx.setLineDash([]);
+      // Crosshair at terrain surface
+      const sy = this._renderer.getTerrainSurfaceY(ax);
+      ctx.strokeStyle = 'rgba(255,60,60,0.95)';
+      ctx.lineWidth = 2.5;
+      const r = 22;
+      ctx.beginPath(); ctx.arc(ax, sy, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax - r - 10, sy); ctx.lineTo(ax + r + 10, sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax, sy - r - 10); ctx.lineTo(ax, sy + r + 10); ctx.stroke();
+      // Label
+      ctx.fillStyle = 'rgba(255,80,80,0.9)';
+      ctx.font = 'bold 12px Segoe UI';
+      ctx.textAlign = 'center';
+      ctx.fillText('AIRSTRIKE', ax, sy - r - 16);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    if (weapon === 'mine') {
+      const t = Date.now() * 0.003;
+      const pulse = 12 + Math.sin(t) * 4;
+      ctx.strokeStyle = 'rgba(255,180,0,0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(worm.x, worm.y, pulse, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,180,0,0.2)';
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,200,0,0.85)';
+      ctx.font = 'bold 11px Segoe UI';
+      ctx.textAlign = 'center';
+      ctx.fillText('MINE', worm.x, worm.y - pulse - 8);
+      ctx.textAlign = 'left';
       return;
     }
 
     if (weapon === 'machinegun') {
-      // Конус разброса
-      ctx.strokeStyle = 'rgba(255,200,50,0.4)';
-      ctx.lineWidth = 1;
       const spread = 0.15;
+      const len = 160;
+      const ox = worm.x, oy = worm.y - 20;
+      // Fill cone
+      ctx.fillStyle = 'rgba(255,210,50,0.08)';
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(ox + Math.cos(angle - spread) * len, oy + Math.sin(angle - spread) * len);
+      ctx.lineTo(ox + Math.cos(angle + spread) * len, oy + Math.sin(angle + spread) * len);
+      ctx.closePath();
+      ctx.fill();
+      // Cone edges
+      ctx.strokeStyle = 'rgba(255,210,50,0.5)';
+      ctx.lineWidth = 1.5;
       [angle - spread, angle + spread].forEach(a => {
         ctx.beginPath();
-        ctx.moveTo(worm.x, worm.y - 20);
-        ctx.lineTo(worm.x + Math.cos(a) * 120, worm.y - 20 + Math.sin(a) * 120);
+        ctx.moveTo(ox, oy);
+        ctx.lineTo(ox + Math.cos(a) * len, oy + Math.sin(a) * len);
         ctx.stroke();
       });
+      // Center line
+      ctx.strokeStyle = 'rgba(255,230,80,0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(ox + Math.cos(angle) * len, oy + Math.sin(angle) * len);
+      ctx.stroke();
       return;
     }
 
-    // Траектория (граната/базука)
-    const power = 0.8;
-    const spd = power * 18;
+    // Trajectory arc — grenade / bazooka / holy_grenade
+    const spd = 0.85 * 18;
     let sx = worm.x, sy = worm.y - 20;
     let vx = Math.cos(angle) * spd, vy = Math.sin(angle) * spd;
-    const grav = weapon === 'bazooka' ? 0.4 : 0.4;
+    let lastX = sx, lastY = sy;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 6]);
     ctx.beginPath();
     ctx.moveTo(sx, sy);
 
-    for (let i = 0; i < 60; i++) {
-      vy += grav;
-      sx += vx;
-      sy += vy;
+    for (let i = 0; i < 80; i++) {
+      vy += 0.4;
+      sx += vx; sy += vy;
       ctx.lineTo(sx, sy);
+      lastX = sx; lastY = sy;
       if (sy > H || sx < 0 || sx > W) break;
     }
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Landing zone dot
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(lastX, lastY, 6, 0, Math.PI * 2); ctx.stroke();
   }
 
   // ─── Projectile render ───────────────────────────────────────────────────
