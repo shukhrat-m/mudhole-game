@@ -13,7 +13,12 @@ export default class CreateServer {
           <h2>Host Game</h2>
 
           <div class="form-group">
-            <label>Your Name</label>
+            <label>Game Name</label>
+            <input id="cs-room" type="text" placeholder="e.g. Friday Night Worms" maxlength="30" />
+          </div>
+
+          <div class="form-group">
+            <label>Your Nickname</label>
             <input id="cs-name" type="text" placeholder="Enter nickname" maxlength="20" />
           </div>
 
@@ -27,6 +32,7 @@ export default class CreateServer {
       </div>
     `;
 
+    document.getElementById('cs-room').value = localStorage.getItem('mudhole_room') || '';
     document.getElementById('cs-name').value = localStorage.getItem('mudhole_name') || '';
     document.getElementById('cs-back').onclick = () => showScreen('mainMenu');
     document.getElementById('cs-btn').onclick   = () => this._create();
@@ -36,18 +42,22 @@ export default class CreateServer {
   }
 
   async _create() {
-    const name = document.getElementById('cs-name').value.trim();
-    const err  = document.getElementById('cs-err');
-    if (!name) { err.textContent = 'Enter a name'; return; }
+    const roomName = document.getElementById('cs-room').value.trim();
+    const name     = document.getElementById('cs-name').value.trim();
+    const err      = document.getElementById('cs-err');
 
-    err.textContent = 'Connecting...';
+    if (!roomName) { err.textContent = 'Enter a game name'; return; }
+    if (!name)     { err.textContent = 'Enter a nickname'; return; }
+
+    err.textContent = 'Creating...';
     localStorage.setItem('mudhole_name', name);
+    localStorage.setItem('mudhole_room', roomName);
 
     try {
-      const msg = await net.connect(autoWsUrl(), name);
+      const msg = await net.createRoom(autoWsUrl(), name, roomName);
       showScreen('lobby', { initialData: msg });
     } catch (e) {
-      err.textContent = e.message || 'Could not connect';
+      err.textContent = e.message || 'Could not create game';
     }
   }
 

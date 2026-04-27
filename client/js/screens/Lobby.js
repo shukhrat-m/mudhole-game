@@ -29,17 +29,21 @@ export default class Lobby {
   }
 
   init(ui) {
-    // Заполнить из initialData
+    // Fill from initialData
     const init = this._data.initialData;
     (init.players || []).forEach(p => { this._players[p.id] = p; });
     if (init.settings) this._settings = { ...init.settings };
     this._mapIndex = MAPS.indexOf(this._settings.map);
     if (this._mapIndex < 0) this._mapIndex = 0;
+    const roomName = init.roomName || 'MUDHOLE';
 
     ui.innerHTML = `
       <div id="lobby-screen" class="screen" style="flex-direction:column;gap:12px;padding:20px">
         <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
-          <div class="logo" style="font-size:32px;margin:0">MUDHOLE</div>
+          <div style="display:flex;flex-direction:column">
+            <div class="logo" style="font-size:32px;margin:0">MUDHOLE</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:2px">${this._esc(roomName)}</div>
+          </div>
           <div style="display:flex;gap:8px">
             <div class="share-url" id="share-url-box">Loading link...</div>
             <button class="btn-copy" id="btn-copy">Copy</button>

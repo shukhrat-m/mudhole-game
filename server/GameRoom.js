@@ -8,7 +8,9 @@ function uid() { return Math.random().toString(36).slice(2, 10); }
 const TEAM_COLORS = { A: '#4a9eff', B: '#ff4a4a' };
 
 class GameRoom {
-  constructor() {
+  constructor(id, name) {
+    this.id = id;
+    this.name = name || 'Game';
     this.players = new Map(); // id → player
     this.state = 'lobby';     // lobby | loading | playing | gameover
     this.settings = { map: 'grassland' };
@@ -72,6 +74,7 @@ class GameRoom {
       id,
       team,
       isHost,
+      roomName: this.name,
       settings: this.settings,
       players: this._serializePlayers(),
     });

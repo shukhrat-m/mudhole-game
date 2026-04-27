@@ -1,53 +1,65 @@
 export default class NetworkClient {
   constructor() {
-    this.ws = null;
-    this.handlers = {};
-    this.playerId = null;
+    this.ws         = null;
+    this.handlers   = {};
+    this.playerId   = null;
     this.playerTeam = null;
-    this.isHost = false;
-    this.playerName = '';
+    this.isHost     = false;
   }
 
-  connect(url, name) {
+  // Opens a WS, sends initMsg, resolves on 'joined'
+  _connectAndJoin(url, initMsg) {
     return new Promise((resolve, reject) => {
+      this.disconnect();
       this.ws = new WebSocket(url);
+      let settled = false;
 
-      this.ws.onopen = () => {
-        this.send({ type: 'join', name });
+      const settle = (fn) => {
+        if (settled) return;
+        settled = true;
+        fn();
       };
+
+      this.ws.onopen = () => this.send(initMsg);
 
       this.ws.onmessage = (e) => {
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
 
         if (msg.type === 'joined') {
-          this.playerId  = msg.id;
-          this.playerTeam = msg.team;
-          this.isHost    = msg.isHost;
-          resolve(msg);
+          settle(() => {
+            this.playerId   = msg.id;
+            this.playerTeam = msg.team;
+            this.isHost     = msg.isHost;
+            resolve(msg);
+          });
+        } else if (msg.type === 'error') {
+          settle(() => reject(new Error(msg.message)));
         }
-
-        if (msg.type === 'error') reject(new Error(msg.message));
 
         const h = this.handlers[msg.type];
         if (h) h(msg);
       };
 
-      this.ws.onerror = () => reject(new Error('Connection error'));
+      this.ws.onerror = () => settle(() => reject(new Error('Connection error')));
       this.ws.onclose = () => {
+        settle(() => reject(new Error('Disconnected')));
         const h = this.handlers['disconnect'];
         if (h) h();
       };
     });
   }
 
-  on(type, handler) {
-    this.handlers[type] = handler;
+  createRoom(url, playerName, roomName) {
+    return this._connectAndJoin(url, { type: 'create_room', name: playerName, roomName });
   }
 
-  off(type) {
-    delete this.handlers[type];
+  joinRoom(url, playerName, roomId) {
+    return this._connectAndJoin(url, { type: 'join_room', name: playerName, roomId });
   }
+
+  on(type, handler) { this.handlers[type] = handler; }
+  off(type)         { delete this.handlers[type]; }
 
   send(msg) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
