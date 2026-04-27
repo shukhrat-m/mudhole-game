@@ -58,8 +58,57 @@ class Terrain {
   }
 
   _genGrassland() {
-    const h = this._heightMap(1337);
-    this._fillBelow(h);
+    const rng = this._seededRng(1337);
+    const heights = new Float32Array(W);
+
+    // Pre-generate phases so the loop stays deterministic
+    const p = Array.from({ length: 8 }, () => rng() * Math.PI * 2);
+
+    for (let x = 0; x < W; x++) {
+      const t = x / W;
+      let h = H * 0.52;
+      // Mountains (1-3 peaks across the full map)
+      h += Math.sin(t * Math.PI * 2 * 1.7 + p[0]) * 140;
+      h += Math.sin(t * Math.PI * 2 * 2.9 + p[1]) * 90;
+      // Hills
+      h += Math.sin(t * Math.PI * 2 * 5.3 + p[2]) * 50;
+      h += Math.sin(t * Math.PI * 2 * 8.7 + p[3]) * 28;
+      // Surface detail
+      h += Math.sin(t * Math.PI * 2 * 15.1 + p[4]) * 14;
+      h += Math.sin(t * Math.PI * 2 * 27.3 + p[5]) * 7;
+      heights[x] = Math.round(Math.max(80, Math.min(this.waterLevel - 80, h)));
+    }
+    this._fillBelow(heights);
+
+    // Underground caves and tunnel networks
+    const rng2 = this._seededRng(4242);
+
+    // Scattered cave pockets — good for digging into or sheltering
+    for (let i = 0; i < 12; i++) {
+      const cx = Math.floor(rng2() * (W - 400) + 200);
+      const surfY = heights[Math.min(W - 1, cx)];
+      const maxDepth = Math.max(10, this.waterLevel - surfY - 140);
+      const cy = surfY + 80 + Math.floor(rng2() * maxDepth);
+      if (cy > 0 && cy < this.waterLevel - 60) {
+        this.carveCircle(cx, cy, 38 + rng2() * 45);
+      }
+    }
+
+    // Tunnel chains — winding underground passages connecting caves
+    for (let i = 0; i < 5; i++) {
+      let cx = Math.floor(rng2() * (W - 800) + 400);
+      let cy = Math.floor(H * 0.62 + rng2() * 100);
+      const steps = 5 + Math.floor(rng2() * 5);
+      for (let j = 0; j < steps; j++) {
+        if (cy < this.waterLevel - 50) {
+          this.carveCircle(cx, cy, 40 + rng2() * 35);
+        }
+        cx += (rng2() - 0.5) * 300;
+        cy += (rng2() - 0.4) * 60; // slight upward bias
+        cx = Math.max(200, Math.min(W - 200, cx));
+        cy = Math.max(300, Math.min(this.waterLevel - 60, cy));
+      }
+    }
   }
 
   _genSnowfield() {

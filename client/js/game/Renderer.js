@@ -1,4 +1,4 @@
-const W_FULL = 1920;
+const W_FULL = 3840;
 const H_FULL = 800;
 
 export default class Renderer {

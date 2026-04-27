@@ -6,7 +6,7 @@ import Particles    from '../utils/Particles.js';
 import SoundManager from '../utils/SoundManager.js';
 import UI           from '../game/UI.js';
 
-const W = 1920, H = 800;
+const W = 3840, H = 800;
 const WEAPONS_LIST = ['grenade','bazooka','machinegun','airstrike','holy_grenade','mine'];
 
 export default class GameScreen {

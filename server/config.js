@@ -16,7 +16,7 @@ module.exports = {
   FALL_DAMAGE_MULTIPLIER: 0.3,
 
   // Terrain
-  TERRAIN_WIDTH: 1920,
+  TERRAIN_WIDTH: 3840,
   TERRAIN_HEIGHT: 800,
   WATER_LEVEL: 740,
 
