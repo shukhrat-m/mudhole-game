@@ -100,29 +100,30 @@ export default class WormRenderer {
     ctx.ellipse(hx, hy, rx, ry, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // ── Single large eye (profile view) ──
-    const ex = 8, ey = hy - 1, eyeR = 5.5;
+    // ── Two eyes ──
+    const eyes = [{ x: 3, y: hy - 3, r: 4.2 }, { x: 9.5, y: hy - 3, r: 4.2 }];
 
-    // Pupil tracks aim direction — correct for mirrored coordinate space
+    // Pupil offset tracks aim direction; clamped so pupils stay inside sclera
     let px = 0, py = 0;
     if (aimAngle !== undefined) {
-      px = Math.cos(aimAngle) * (fr ? 1 : -1) * 1.8;
-      py = Math.sin(aimAngle) * 1.4;
+      const clamp = 1.5;
+      px = Math.max(-clamp, Math.min(clamp, Math.cos(aimAngle) * (fr ? 1 : -1) * 1.6));
+      py = Math.max(-clamp, Math.min(clamp, Math.sin(aimAngle) * 1.2));
     }
 
-    // Sclera
-    ctx.fillStyle   = '#fff';
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
-    // Iris + pupil
-    ctx.fillStyle = '#1a1a38';
-    ctx.beginPath(); ctx.arc(ex + px, ey + py, eyeR * 0.55, 0, Math.PI * 2); ctx.fill();
-
-    // Catchlight
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath(); ctx.arc(ex + px - 1.6, ey + py - 1.6, 1.6, 0, Math.PI * 2); ctx.fill();
+    eyes.forEach(({ x: ex, y: ey, r: eyeR }) => {
+      // Sclera
+      ctx.fillStyle   = '#fff';
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // Iris
+      ctx.fillStyle = '#1a1a38';
+      ctx.beginPath(); ctx.arc(ex + px, ey + py, eyeR * 0.56, 0, Math.PI * 2); ctx.fill();
+      // Catchlight
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.arc(ex + px - 1.3, ey + py - 1.3, 1.3, 0, Math.PI * 2); ctx.fill();
+    });
 
     // ── Mouth ──
     ctx.strokeStyle = pal.outline;

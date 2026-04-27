@@ -5,6 +5,7 @@ import InputHandler from '../game/InputHandler.js';
 import Particles    from '../utils/Particles.js';
 import SoundManager from '../utils/SoundManager.js';
 import UI           from '../game/UI.js';
+import Minimap      from '../game/Minimap.js';
 
 const W = 3840, H = 800;
 const WEAPONS_LIST = ['grenade','bazooka','machinegun','airstrike','holy_grenade','mine'];
@@ -28,6 +29,7 @@ export default class GameScreen {
     this._particles   = null;
     this._sound       = null;
     this._ui          = null;
+    this._minimap     = null;
 
     // Projectiles (client-side simulation for rendering)
     this._projList = [];
@@ -58,6 +60,10 @@ export default class GameScreen {
     // Load terrain
     const rle = window._mudhole_terrain;
     if (rle) this._renderer.loadTerrain(rle, this._map, W, H);
+
+    // Minimap
+    this._minimap = new Minimap();
+    if (this._renderer.mask) this._minimap.setTerrain(this._renderer.mask);
 
     // Load initial game state
     const startData = window._mudhole_gameStart;
@@ -106,8 +112,9 @@ export default class GameScreen {
 
   destroy() {
     cancelAnimationFrame(this._raf);
-    if (this._input) this._input.destroy();
-    if (this._ui)    this._ui.destroy();
+    if (this._input)   this._input.destroy();
+    if (this._ui)      this._ui.destroy();
+    if (this._minimap) this._minimap.destroy();
 
     const hudEl = document.getElementById('hud');
     if (hudEl) hudEl.style.display = 'none';
@@ -222,6 +229,11 @@ export default class GameScreen {
         timeLeft: this._timeLeft,
         myTurn: this._myTurn,
       });
+    }
+
+    // Minimap
+    if (this._minimap) {
+      this._minimap.render(this._renderer, this._worms, this._currentId);
     }
 
     r.clearUiGame();
@@ -435,6 +447,7 @@ export default class GameScreen {
   _onTerrainUpdate(msg) {
     this._renderer.applyTerrainUpdate(msg);
     this._renderer.drawTerrain();
+    if (this._minimap) this._minimap.markDirty();
   }
 
   _onWormDied(msg) {
