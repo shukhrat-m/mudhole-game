@@ -170,7 +170,6 @@ export default class Lobby {
       }).join('');
     });
 
-    list.querySelectorAll && void 0; // no-op
     document.querySelectorAll('.btn-swap').forEach(btn => {
       btn.onclick = () => net.send({ type: 'swap_team' });
     });
@@ -268,28 +267,15 @@ export default class Lobby {
     showScreen('mainMenu');
   }
 
-  async _loadNgrokUrl() {
-    try {
-      const r = await fetch('/tunnel-url');
-      const data = await r.json();
-      const urlBox = document.getElementById('share-url-box');
-      if (!urlBox) return;
-      if (data.url) {
-        this._ngrokUrl = data.url;
-        urlBox.textContent = data.url;
-        urlBox.title = data.url;
-      } else {
-        urlBox.textContent = 'Run: ngrok http 3000';
-      }
-    } catch {
-      const urlBox = document.getElementById('share-url-box');
-      if (urlBox) urlBox.textContent = 'ngrok not running';
-    }
+  _loadNgrokUrl() {
+    const url = window.location.origin;
+    const urlBox = document.getElementById('share-url-box');
+    if (urlBox) { urlBox.textContent = url; urlBox.title = url; }
+    this._ngrokUrl = url;
   }
 
   _copyUrl() {
-    const text = this._ngrokUrl || document.getElementById('share-url-box')?.textContent || '';
-    if (!text || text.includes('ngrok')) return;
+    const text = this._ngrokUrl || window.location.origin;
     navigator.clipboard.writeText(text).then(() => {
       const btn = document.getElementById('btn-copy');
       if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
