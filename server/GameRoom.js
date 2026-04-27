@@ -21,6 +21,7 @@ class GameRoom {
     this.tickInterval = null;
     this.timeLeft = cfg.TURN_TIME;
     this.projectiles = [];
+    this.scores = { A: 0, B: 0 };
   }
 
   // ─── Connect / Disconnect ────────────────────────────────────────────────
@@ -169,6 +170,7 @@ class GameRoom {
         alive: true,
         weapon: 'grenade',
         fallStartY: null,
+        ammo: { ...cfg.WEAPON_AMMO },
       };
     });
 
@@ -185,7 +187,7 @@ class GameRoom {
     const currentPlayerId = turnQueue[0] || null;
 
     this._broadcast({ type: 'terrain', rle });
-    this._broadcast({ type: 'game_start', worms, turnQueue, currentPlayerId, timeLeft: cfg.TURN_TIME });
+    this._broadcast({ type: 'game_start', worms, turnQueue, currentPlayerId, timeLeft: cfg.TURN_TIME, scores: this.scores });
 
     this.state = 'playing';
     this._startTurn();
@@ -259,7 +261,7 @@ class GameRoom {
     this.timeLeft = cfg.TURN_TIME;
     const currentId = this._currentPlayerId();
 
-    this._broadcast({ type: 'turn_start', playerId: currentId, timeLeft: this.timeLeft });
+    this._broadcast({ type: 'turn_start', playerId: currentId, timeLeft: this.timeLeft, scores: this.scores });
 
     // Turn timer
     clearInterval(this.timer);
@@ -348,45 +350,68 @@ class GameRoom {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
     if (this._shotFired) return;
-    this._shotFired = true;
 
-    const proj = Weapons.createProjectile(
-      player.worm,
-      msg.weapon || player.worm.weapon,
-      msg.angle,
-      msg.power
-    );
-    if (proj) {
-      this.projectiles.push(proj);
-      this._broadcast({ type: 'projectile', ...proj });
+    const weapon = msg.weapon || player.worm.weapon;
+
+    // Check ammo
+    if ((player.worm.ammo[weapon] ?? 1) <= 0) return;
+    this._shotFired = true;
+    if (player.worm.ammo[weapon] !== undefined) player.worm.ammo[weapon]--;
+    player.worm.weapon = weapon;
+
+    clearInterval(this.timer);
+
+    if (weapon === 'machinegun') {
+      const bullets = Weapons.createBurst(player.worm, msg.angle);
+      bullets.forEach(b => {
+        setTimeout(() => {
+          if (this.state !== 'playing') return;
+          this.projectiles.push(b);
+          this._broadcast({ type: 'projectile', ...b, weapon: 'machinegun' });
+        }, b.delay * cfg.TICK_RATE);
+      });
+      setTimeout(() => this._nextTurn(), 4000);
+    } else {
+      const proj = Weapons.createProjectile(player.worm, weapon, msg.angle, msg.power);
+      if (proj) {
+        this.projectiles.push(proj);
+        this._broadcast({ type: 'projectile', ...proj });
+      }
+      setTimeout(() => this._nextTurn(), 3000);
     }
 
-    // End turn after a short animation delay
-    clearInterval(this.timer);
-    setTimeout(() => this._nextTurn(), 3000);
+    this._broadcast({ type: 'state', worms: this._serializeWorms() });
   }
 
   _onAirstrike(ws, msg) {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
     if (this._shotFired) return;
+    if ((player.worm.ammo.airstrike ?? 1) <= 0) return;
     this._shotFired = true;
+    if (player.worm.ammo.airstrike !== undefined) player.worm.ammo.airstrike--;
 
     const projs = Weapons.createAirstrike(msg.x, this.terrain);
-    projs.forEach(p => {
-      this.projectiles.push(p);
-      this._broadcast({ type: 'projectile', ...p });
+    projs.forEach((p, i) => {
+      setTimeout(() => {
+        if (this.state !== 'playing') return;
+        this.projectiles.push(p);
+        this._broadcast({ type: 'projectile', ...p });
+      }, i * 400);
     });
 
     clearInterval(this.timer);
-    setTimeout(() => this._nextTurn(), 4000);
+    setTimeout(() => this._nextTurn(), 5000);
+    this._broadcast({ type: 'state', worms: this._serializeWorms() });
   }
 
   _onPlaceMine(ws) {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
     if (this._shotFired) return;
+    if ((player.worm.ammo.mine ?? 1) <= 0) return;
     this._shotFired = true;
+    if (player.worm.ammo.mine !== undefined) player.worm.ammo.mine--;
 
     const mine = Weapons.createMine(player.worm);
     this.projectiles.push(mine);
@@ -394,6 +419,7 @@ class GameRoom {
 
     clearInterval(this.timer);
     setTimeout(() => this._nextTurn(), 500);
+    this._broadcast({ type: 'state', worms: this._serializeWorms() });
   }
 
   _onRematch(ws) {
@@ -405,6 +431,7 @@ class GameRoom {
     this.projectiles = [];
     this.turnQueue = [];
     this.state = 'lobby';
+    this.scores = { A: 0, B: 0 };
 
     this.players.forEach(p => { p.worm = null; p.alive = true; });
     this._broadcast({ type: 'rematch', players: this._serializePlayers() });
@@ -447,7 +474,10 @@ class GameRoom {
     player.worm.alive = false;
     player.worm.hp = 0;
     player.alive = false;
-    this._broadcast({ type: 'worm_died', id });
+    // Award kill point to the opposing team
+    const opposingTeam = player.team === 'A' ? 'B' : 'A';
+    this.scores[opposingTeam] = (this.scores[opposingTeam] || 0) + 1;
+    this._broadcast({ type: 'worm_died', id, scores: this.scores });
   }
 
   _checkWinCondition() {
@@ -466,7 +496,8 @@ class GameRoom {
         stats.push({ id: p.id, name: p.name, team: p.team, alive: p.worm && p.worm.alive });
       });
 
-      this._broadcast({ type: 'game_over', winner, stats });
+      this.scores[winner] = (this.scores[winner] || 0) + 3; // win bonus
+      this._broadcast({ type: 'game_over', winner, stats, scores: this.scores });
     }
   }
 

@@ -22,4 +22,14 @@ module.exports = {
 
   // Server tick
   TICK_RATE: 20, // ms between state broadcasts during a turn
+
+  // Weapon ammo per player per game
+  WEAPON_AMMO: {
+    grenade:      5,
+    bazooka:      4,
+    machinegun:   3,
+    airstrike:    2,
+    holy_grenade: 2,
+    mine:         3,
+  },
 };

@@ -13,12 +13,12 @@ const WEAPONS_LIST = ['grenade','bazooka','machinegun','airstrike','holy_grenade
 export default class GameScreen {
   constructor(data) {
     this._map = data.map || 'grassland';
-    this._worms = {};        // id → worm
-    this._projectiles = {};  // id → projectile
+    this._worms = {};
     this._myId       = net.playerId;
     this._currentId  = null;
     this._myTurn     = false;
     this._timeLeft   = 30;
+    this._scores     = { A: 0, B: 0 };
     this._raf        = null;
     this._dt         = 0;
     this._lastTime   = 0;
@@ -31,17 +31,14 @@ export default class GameScreen {
     this._ui          = null;
     this._minimap     = null;
 
-    // Projectiles (client-side simulation for rendering)
     this._projList = [];
   }
 
   async init(ui) {
-    // Hide UI overlay (using HUD instead)
     ui.innerHTML = '';
     const hudEl = document.getElementById('hud');
     hudEl.style.display = 'block';
 
-    // Systems
     this._renderer   = new Renderer();
     this._wormRender = new WormRenderer();
     this._particles  = new Particles();
@@ -57,21 +54,20 @@ export default class GameScreen {
       showScreen('mainMenu');
     });
 
-    // Load terrain
     const rle = window._mudhole_terrain;
     if (rle) this._renderer.loadTerrain(rle, this._map, W, H);
 
-    // Minimap
     this._minimap = new Minimap();
     if (this._renderer.mask) this._minimap.setTerrain(this._renderer.mask);
 
-    // Load initial game state
     const startData = window._mudhole_gameStart;
     if (startData) {
-      (startData.worms || []).forEach(w => { this._worms[w.id] = { ...w, hurtFlash: 0, anim: 'idle' }; });
+      (startData.worms || []).forEach(w => {
+        this._worms[w.id] = { ...w, hurtFlash: 0, anim: 'idle' };
+      });
+      if (startData.scores) this._scores = startData.scores;
     }
 
-    // Input
     this._input = new InputHandler(
       document.getElementById('canvas-ui-game'),
       net,
@@ -80,21 +76,22 @@ export default class GameScreen {
     );
     document.getElementById('canvas-ui-game').style.pointerEvents = 'auto';
 
-    // turn_start arrives before Game.js registers its handler (Loading.js has a 300ms delay).
-    // Seed the first turn from the data already embedded in game_start.
     if (startData && startData.currentPlayerId) {
       this._currentId = startData.currentPlayerId;
       this._timeLeft  = startData.timeLeft || 30;
       this._myTurn    = this._currentId === this._myId;
       this._input.setTurn(this._myTurn);
+      if (this._myTurn && this._worms[this._myId]) {
+        this._worms[this._myId].weapon = 'grenade';
+      }
     }
 
-    // Weapon change
     window.addEventListener('weapon_changed', this._onWeaponChanged = (e) => {
       this._ui.setWeapon(e.detail);
+      // Keep local worm weapon in sync so renderer shows correct weapon in hand
+      if (this._worms[this._myId]) this._worms[this._myId].weapon = e.detail;
     });
 
-    // Network
     net.on('state',          msg => this._onState(msg));
     net.on('turn_start',     msg => this._onTurnStart(msg));
     net.on('turn_end',       ()  => this._onTurnEnd());
@@ -126,7 +123,6 @@ export default class GameScreen {
      'terrain_update','worm_died','mine_placed','game_over','disconnect']
       .forEach(t => net.off(t));
 
-    // Clear canvas
     ['canvas-bg','canvas-terrain','canvas-game','canvas-effects','canvas-ui-game'].forEach(id => {
       const c = document.getElementById(id);
       if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height);
@@ -139,7 +135,6 @@ export default class GameScreen {
     this._raf = requestAnimationFrame(t => this._loop(t));
     const dt = Math.min((ts - this._lastTime) / 16.67, 3);
     this._lastTime = ts;
-
     this._update(dt);
     this._draw(dt);
   }
@@ -149,19 +144,20 @@ export default class GameScreen {
     this._wormRender.tick();
     this._particles.update();
 
-    // Клиентская симуляция снарядов для плавного рендера
+    // Client-side projectile simulation for smooth rendering + trail building
     this._projList.forEach(p => {
+      p.trail.push({ x: p.x, y: p.y });
+      if (p.trail.length > 14) p.trail.shift();
       p.vy += p.gravity * dt;
       p.x  += p.vx * dt;
       p.y  += p.vy * dt;
     });
 
-    // Обновить анимации червей
     Object.values(this._worms).forEach(w => {
       if (w.hurtFlash > 0) w.hurtFlash--;
     });
 
-    // Camera: follow active worm, or airstrike cursor when that weapon is selected
+    // Camera
     const targetWorm = this._worms[this._currentId || this._myId];
     if (targetWorm) {
       if (this._myTurn && this._input && this._input.getWeapon() === 'airstrike') {
@@ -175,20 +171,18 @@ export default class GameScreen {
   }
 
   _draw(dt) {
-    const r   = this._renderer;
+    const r     = this._renderer;
     const gCtx  = r.gameCtx;
     const fxCtx = r.fxCtx;
-    const uiCtx = r.uiGameCtx;
 
     r.drawBackground(dt);
     r.drawTerrain();
 
-    // Game layer: черви + снаряды
     r.clearGame();
     gCtx.save();
     r.applyCamera(gCtx);
 
-    const myWorm = this._worms[this._myId];
+    const myWorm   = this._worms[this._myId];
     const aimAngle = this._input ? this._input.getAimAngle() : 0;
 
     Object.values(this._worms).forEach(w => {
@@ -199,39 +193,38 @@ export default class GameScreen {
       );
     });
 
-    // Снаряды
+    // Projectiles with trails
     this._projList.forEach(p => this._drawProjectile(gCtx, p));
 
-    // Мины
-    Object.values(this._worms); // (mines drawn separately if needed)
-
-    // Прицел
+    // Aim indicator
     if (this._myTurn && myWorm && myWorm.alive) {
       this._drawAimLine(gCtx, myWorm, aimAngle);
     }
 
     gCtx.restore();
 
-    // Effects layer: частицы
+    // Particles
     r.clearFx();
     fxCtx.save();
     r.applyCamera(fxCtx);
     this._particles.render(fxCtx);
     fxCtx.restore();
 
-    // UI layer: апдейт HUD данных
+    // HUD update
     const wormsArr = Object.values(this._worms);
     if (wormsArr.length) {
+      const myAmmo = (this._worms[this._myId] || {}).ammo;
       this._ui.update({
         worms: wormsArr,
         currentPlayerId: this._currentId,
         myId: this._myId,
         timeLeft: this._timeLeft,
         myTurn: this._myTurn,
+        scores: this._scores,
+        myAmmo,
       });
     }
 
-    // Minimap
     if (this._minimap) {
       this._minimap.render(this._renderer, this._worms, this._currentId);
     }
@@ -246,59 +239,73 @@ export default class GameScreen {
 
     if (weapon === 'airstrike') {
       const ax = this._input.getAirstrikeX();
-      // Vertical drop line
-      ctx.strokeStyle = 'rgba(255,60,60,0.65)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([10, 7]);
-      ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, H); ctx.stroke();
-      ctx.setLineDash([]);
-      // Crosshair at terrain surface
       const sy = this._renderer.getTerrainSurfaceY(ax);
-      ctx.strokeStyle = 'rgba(255,60,60,0.95)';
+
+      // Drop column — glow
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,70,70,0.25)';
+      ctx.lineWidth = 14;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, sy); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,70,70,0.55)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([12, 8]);
+      ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, sy); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Crosshair
+      const r = 26;
+      ctx.strokeStyle = '#ff4040';
       ctx.lineWidth = 2.5;
-      const r = 22;
+      ctx.shadowColor = '#ff4040'; ctx.shadowBlur = 10;
       ctx.beginPath(); ctx.arc(ax, sy, r, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(ax - r - 10, sy); ctx.lineTo(ax + r + 10, sy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(ax, sy - r - 10); ctx.lineTo(ax, sy + r + 10); ctx.stroke();
-      // Label
+      ctx.beginPath(); ctx.moveTo(ax - r - 12, sy); ctx.lineTo(ax + r + 12, sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax, sy - r - 12); ctx.lineTo(ax, sy + r + 12); ctx.stroke();
+
       ctx.fillStyle = 'rgba(255,80,80,0.9)';
-      ctx.font = 'bold 12px Segoe UI';
+      ctx.shadowBlur = 6;
+      ctx.font = 'bold 13px Segoe UI';
       ctx.textAlign = 'center';
-      ctx.fillText('AIRSTRIKE', ax, sy - r - 16);
+      ctx.fillText('✈ AIRSTRIKE', ax, sy - r - 18);
       ctx.textAlign = 'left';
+      ctx.shadowBlur = 0;
+      ctx.restore();
       return;
     }
 
     if (weapon === 'mine') {
-      const t = Date.now() * 0.003;
-      const pulse = 12 + Math.sin(t) * 4;
-      ctx.strokeStyle = 'rgba(255,180,0,0.85)';
+      const t   = Date.now() * 0.003;
+      const r   = 14 + Math.sin(t) * 5;
+      ctx.save();
+      ctx.shadowColor = '#ffb800'; ctx.shadowBlur = 12;
+      ctx.strokeStyle = 'rgba(255,180,0,0.9)';
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(worm.x, worm.y, pulse, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,180,0,0.2)';
+      ctx.beginPath(); ctx.arc(worm.x, worm.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,180,0,0.15)';
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,200,0,0.85)';
-      ctx.font = 'bold 11px Segoe UI';
+      ctx.fillStyle = '#ffcc00';
+      ctx.font = 'bold 12px Segoe UI';
       ctx.textAlign = 'center';
-      ctx.fillText('MINE', worm.x, worm.y - pulse - 8);
+      ctx.fillText('MINE', worm.x, worm.y - r - 8);
       ctx.textAlign = 'left';
+      ctx.shadowBlur = 0;
+      ctx.restore();
       return;
     }
 
     if (weapon === 'machinegun') {
-      const spread = 0.15;
-      const len = 160;
+      const spread = 0.14, len = 180;
       const ox = worm.x, oy = worm.y - 20;
-      // Fill cone
-      ctx.fillStyle = 'rgba(255,210,50,0.08)';
+      ctx.save();
+      // Cone fill
+      ctx.fillStyle = 'rgba(255,220,60,0.07)';
       ctx.beginPath();
       ctx.moveTo(ox, oy);
       ctx.lineTo(ox + Math.cos(angle - spread) * len, oy + Math.sin(angle - spread) * len);
       ctx.lineTo(ox + Math.cos(angle + spread) * len, oy + Math.sin(angle + spread) * len);
-      ctx.closePath();
-      ctx.fill();
-      // Cone edges
-      ctx.strokeStyle = 'rgba(255,210,50,0.5)';
+      ctx.closePath(); ctx.fill();
+      // Outer edges
+      ctx.strokeStyle = 'rgba(255,210,50,0.45)';
       ctx.lineWidth = 1.5;
       [angle - spread, angle + spread].forEach(a => {
         ctx.beginPath();
@@ -306,99 +313,221 @@ export default class GameScreen {
         ctx.lineTo(ox + Math.cos(a) * len, oy + Math.sin(a) * len);
         ctx.stroke();
       });
-      // Center line
-      ctx.strokeStyle = 'rgba(255,230,80,0.8)';
-      ctx.lineWidth = 1;
+      // Center glow line
+      ctx.shadowColor = '#ffdb4a'; ctx.shadowBlur = 8;
+      ctx.strokeStyle = 'rgba(255,235,90,0.85)';
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(ox, oy);
       ctx.lineTo(ox + Math.cos(angle) * len, oy + Math.sin(angle) * len);
       ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
       return;
     }
 
-    // Trajectory arc — grenade / bazooka / holy_grenade
+    // ─── Trajectory arc: grenade / bazooka / holy_grenade ─────────────────
     const spd = 0.85 * 18;
-    let sx = worm.x, sy = worm.y - 20;
+    let px = worm.x, py = worm.y - 20;
     let vx = Math.cos(angle) * spd, vy = Math.sin(angle) * spd;
-    let lastX = sx, lastY = sy;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 6]);
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-
-    for (let i = 0; i < 80; i++) {
-      vy += 0.4;
-      sx += vx; sy += vy;
-      ctx.lineTo(sx, sy);
-      lastX = sx; lastY = sy;
-      if (sy > H || sx < 0 || sx > W) break;
+    const pts = [];
+    for (let i = 0; i < 100; i++) {
+      vy += 0.38;
+      px += vx; py += vy;
+      pts.push({ x: px, y: py });
+      if (py > H || px < 0 || px > W) break;
     }
-    ctx.stroke();
-    ctx.setLineDash([]);
 
-    // Landing zone dot
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(lastX, lastY, 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.save();
+    // Glow pass
+    ctx.shadowColor = weapon === 'holy_grenade' ? '#ffe040' : '#60c8ff';
+    ctx.shadowBlur  = 10;
+
+    // Draw dots along trajectory (not dashes — looks much cleaner)
+    const dotColor = weapon === 'holy_grenade' ? 'rgba(255,215,0,' : 'rgba(120,200,255,';
+    for (let i = 0; i < pts.length; i++) {
+      const alpha = (1 - i / pts.length) * 0.7;
+      const r     = i % 4 === 0 ? 2.5 : (i % 2 === 0 ? 1.5 : 0);
+      if (r === 0) continue;
+      ctx.fillStyle = dotColor + alpha + ')';
+      ctx.beginPath();
+      ctx.arc(pts[i].x, pts[i].y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Landing zone ring
+    const last = pts[pts.length - 1];
+    ctx.shadowBlur  = 14;
+    ctx.strokeStyle = weapon === 'holy_grenade' ? 'rgba(255,220,0,0.9)' : 'rgba(100,200,255,0.85)';
+    ctx.lineWidth   = 2;
+    ctx.beginPath(); ctx.arc(last.x, last.y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(last.x - 14, last.y); ctx.lineTo(last.x + 14, last.y);
+    ctx.moveTo(last.x, last.y - 14); ctx.lineTo(last.x, last.y + 14);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
   }
 
   // ─── Projectile render ───────────────────────────────────────────────────
 
   _drawProjectile(ctx, p) {
+    // Trail
+    if (p.trail && p.trail.length > 1) {
+      ctx.save();
+      const trailColor = this._trailColor(p.type);
+      for (let i = 1; i < p.trail.length; i++) {
+        const alpha = (i / p.trail.length) * 0.55;
+        const width = (i / p.trail.length) * (p.type === 'bullet' ? 2 : 4);
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = trailColor;
+        ctx.lineWidth   = width;
+        ctx.lineCap     = 'round';
+        ctx.shadowColor = trailColor;
+        ctx.shadowBlur  = 6;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[i-1].x, p.trail[i-1].y);
+        ctx.lineTo(p.trail[i].x,   p.trail[i].y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur  = 0;
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(p.x, p.y);
     const angle = Math.atan2(p.vy, p.vx);
     ctx.rotate(angle);
 
+    ctx.shadowBlur = 8;
+
     switch (p.type) {
-      case 'grenade':
+      case 'grenade': {
+        ctx.shadowColor = '#aaa';
+        ctx.fillStyle = '#666';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#999';
+        ctx.fillRect(-1.5, -10, 3, 8);
+        break;
+      }
       case 'holy_grenade': {
-        ctx.fillStyle = p.type === 'holy_grenade' ? '#ffd700' : '#555';
-        ctx.beginPath(); ctx.arc(0, 0, p.type === 'holy_grenade' ? 7 : 5, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#333';
-        ctx.fillRect(-1, -10, 2, 8);
+        ctx.shadowColor = '#ffd700';
+        ctx.fillStyle = '#ffd700';
+        ctx.strokeStyle = 'rgba(180,130,0,0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // Glow ring
+        ctx.globalAlpha = 0.35;
+        ctx.shadowBlur = 18;
+        ctx.strokeStyle = '#fff6a0';
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.stroke();
+        ctx.globalAlpha = 1;
         break;
       }
       case 'bazooka': {
-        ctx.fillStyle = '#aaa';
-        ctx.fillRect(-12, -3, 24, 6);
-        ctx.fillStyle = '#ff6600';
-        ctx.beginPath(); ctx.arc(-14, 0, 6, 0, Math.PI*2); ctx.fill();
+        ctx.shadowColor = '#ff6600';
+        // Rocket body
+        ctx.fillStyle = '#8aaa6a';
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(-14, -4, 28, 8, 3);
+        ctx.fill(); ctx.stroke();
+        // Tip
+        ctx.fillStyle = '#cc5500';
+        ctx.beginPath();
+        ctx.moveTo(14, 0); ctx.lineTo(22, -3); ctx.lineTo(22, 3); ctx.closePath();
+        ctx.fill();
+        // Exhaust flame
+        const flicker = 0.7 + Math.random() * 0.3;
+        ctx.fillStyle = `rgba(255,140,0,${flicker})`;
+        ctx.beginPath();
+        ctx.moveTo(-14, -4); ctx.lineTo(-14 - 10 * flicker, 0); ctx.lineTo(-14, 4);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = `rgba(255,240,80,${flicker * 0.8})`;
+        ctx.beginPath();
+        ctx.moveTo(-14, -2); ctx.lineTo(-14 - 6 * flicker, 0); ctx.lineTo(-14, 2);
+        ctx.closePath(); ctx.fill();
         break;
       }
       case 'bullet': {
-        ctx.fillStyle = '#ffd700';
-        ctx.fillRect(-4, -1.5, 8, 3);
+        ctx.shadowColor = '#ffdd00';
+        ctx.fillStyle = '#ffcc00';
+        ctx.strokeStyle = '#cc8800';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.roundRect(-5, -2, 10, 4, 2);
+        ctx.fill(); ctx.stroke();
         break;
       }
       case 'airstrike_bomb': {
-        ctx.fillStyle = '#333';
-        ctx.beginPath(); ctx.ellipse(0, 0, 5, 10, 0, 0, Math.PI*2); ctx.fill();
+        ctx.shadowColor = '#ff6600';
+        ctx.fillStyle = '#444';
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(0, 0, 5, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // Fins
+        ctx.fillStyle = '#666';
+        ctx.fillRect(-7, 6, 14, 4);
+        // Nose shine
         ctx.fillStyle = '#888';
-        ctx.fillRect(-3, 8, 6, 5);
+        ctx.beginPath(); ctx.ellipse(-1, -7, 2, 4, 0, 0, Math.PI * 2); ctx.fill();
         break;
       }
       case 'mine': {
-        ctx.fillStyle = '#666';
-        ctx.fillRect(-8, -5, 16, 10);
-        ctx.fillStyle = '#f44';
-        ctx.beginPath(); ctx.arc(0, -2, 4, 0, Math.PI*2); ctx.fill();
+        ctx.shadowColor = '#ff4444';
+        ctx.fillStyle = '#555';
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(-10, -7, 20, 14, 3);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#ee3333';
+        ctx.beginPath(); ctx.arc(0, -2, 4, 0, Math.PI * 2); ctx.fill();
+        // LED blink
+        const blink = Math.floor(Date.now() / 400) % 2 === 0;
+        if (blink) {
+          ctx.fillStyle = '#ff8888';
+          ctx.beginPath(); ctx.arc(0, -2, 2, 0, Math.PI * 2); ctx.fill();
+        }
         break;
       }
     }
+
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
-  // ─── Сетевые события ────────────────────────────────────────────────────
+  _trailColor(type) {
+    switch (type) {
+      case 'bullet':        return '#ffdd40';
+      case 'bazooka':       return '#ff8040';
+      case 'holy_grenade':  return '#ffd700';
+      case 'airstrike_bomb':return '#ff6020';
+      case 'grenade':       return '#88ccff';
+      default:              return '#aaaaaa';
+    }
+  }
+
+  // ─── Network events ──────────────────────────────────────────────────────
 
   _onState(msg) {
     (msg.worms || []).forEach(w => {
       if (this._worms[w.id]) {
         const old = this._worms[w.id];
         if (w.hp < old.hp) { old.hurtFlash = 12; this._sound.playHurt(); }
+        // Preserve local weapon selection so hand shows correct weapon
+        const localWeapon = old.weapon;
         Object.assign(old, w);
+        if (w.id === this._myId) old.weapon = localWeapon;
+        // Sync ammo from server
+        if (w.ammo) old.ammo = w.ammo;
       }
     });
   }
@@ -407,10 +536,16 @@ export default class GameScreen {
     this._currentId = msg.playerId;
     this._timeLeft  = msg.timeLeft;
     this._myTurn    = msg.playerId === this._myId;
+    if (msg.scores) this._scores = msg.scores;
     if (this._input) this._input.setTurn(this._myTurn);
     this._projList = [];
 
-    // Snap camera to the newly active worm so the pan is instant
+    if (this._myTurn && this._worms[this._myId]) {
+      this._worms[this._myId].weapon = 'grenade';
+      this._ui.setWeapon('grenade');
+      if (this._input) this._input.setWeapon('grenade');
+    }
+
     const worm = this._worms[msg.playerId];
     if (worm && this._renderer) this._renderer.snapTo(worm.x, worm.y);
   }
@@ -421,21 +556,19 @@ export default class GameScreen {
   }
 
   _onProjectile(msg) {
-    this._projList.push({ ...msg, gravity: msg.type === 'bullet' ? 0.1 : 0.4 });
+    this._projList.push({ ...msg, gravity: msg.type === 'bullet' ? 0.1 : 0.4, trail: [] });
     this._sound.playShot(msg.weapon || msg.type, msg.x);
   }
 
   _onExplosion(msg) {
     this._particles.spawnExplosion(msg.x, msg.y, msg.radius);
     this._renderer.triggerShake(msg.radius / 8);
-    this._sound.playExplosion(msg.x, msg.y);
+    this._sound.playExplosion(msg.x);
 
-    // Убрать снаряды в зоне взрыва
-    this._projList = this._projList.filter(p => {
-      return Math.hypot(p.x - msg.x, p.y - msg.y) > 20;
-    });
+    this._projList = this._projList.filter(p =>
+      Math.hypot(p.x - msg.x, p.y - msg.y) > 20
+    );
 
-    // Обновить HP червей
     (msg.damages || []).forEach(d => {
       if (this._worms[d.id]) {
         this._worms[d.id].hp = d.hp;
@@ -458,12 +591,11 @@ export default class GameScreen {
       w.hp    = 0;
       this._sound.playDeath();
     }
-    if (msg.id === this._myId) {
-      this._ui.showDead();
-    }
+    if (msg.scores) this._scores = msg.scores;
+    if (msg.id === this._myId) this._ui.showDead();
   }
 
   _onMinePlaced(msg) {
-    this._projList.push({ ...msg, type: 'mine', vx: 0, vy: 0, gravity: 0 });
+    this._projList.push({ ...msg, type: 'mine', vx: 0, vy: 0, gravity: 0, trail: [] });
   }
 }

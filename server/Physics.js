@@ -15,7 +15,7 @@ const Physics = {
     if (nx < 5 || nx > cfg.TERRAIN_WIDTH - 5) return;
 
     // Climb slopes (up to 3 pixels)
-    for (let slopeUp = 0; slopeUp <= 3; slopeUp++) {
+    for (let slopeUp = 0; slopeUp <= 7; slopeUp++) {
       if (!terrain.isBlocked(nx, worm.y - slopeUp)) {
         worm.x = nx;
         worm.y = worm.y - slopeUp;

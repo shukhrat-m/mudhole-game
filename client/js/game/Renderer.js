@@ -65,40 +65,29 @@ export default class Renderer {
   }
 
   _paintTerrain(ctx, mask, W, H, mapType) {
-    const colors = this._mapColors(mapType);
+    const surfY  = this._computeSurfaceY(0, W, mask, W, H);
     const imgData = ctx.createImageData(W, H);
-    const d = imgData.data;
+    const d       = imgData.data;
 
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
+        if (mask[y * W + x] !== 1) continue;
+        const rgb = this._terrainPixel(x, y, surfY[x], mapType);
+        if (!rgb) continue;
         const i = (y * W + x) * 4;
-        if (mask[y * W + x] === 1) {
-          const depth = Math.min(1, y / H);
-          const [r, g, b] = this._lerpColor(colors.top, colors.deep, depth);
-          d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = 255;
-        }
+        d[i] = rgb[0]; d[i+1] = rgb[1]; d[i+2] = rgb[2]; d[i+3] = 255;
       }
     }
     ctx.putImageData(imgData, 0, 0);
-
-    // Травяная линия
-    if (mapType === 'grassland' || mapType === 'snowfield' || mapType === 'island') {
-      ctx.fillStyle = mapType === 'snowfield' ? '#d0e8ff' : '#3a9a3a';
-      for (let x = 0; x < W; x++) {
-        for (let y = 0; y < H; y++) {
-          if (mask[y * W + x] === 1 && (y === 0 || mask[(y-1)*W+x] === 0)) {
-            ctx.fillRect(x, y, 1, 3);
-          }
-        }
-      }
-    }
   }
 
   _paintTerrainRegion(ctx, rx, ry, rw, rh) {
-    const W = W_FULL;
-    const colors = this._mapColors(this.mapType);
-    const x0 = Math.max(0, rx), y0 = Math.max(0, ry);
+    const W  = W_FULL;
+    const x0 = Math.max(0, rx),      y0 = Math.max(0, ry);
     const x1 = Math.min(W_FULL - 1, rx + rw), y1 = Math.min(H_FULL - 1, ry + rh);
+
+    // Recompute surfaceY for affected columns (must scan full height)
+    const surfY = this._computeSurfaceY(x0, x1 + 1, this.mask, W, H_FULL);
 
     const imgData = ctx.createImageData(x1 - x0 + 1, y1 - y0 + 1);
     const d = imgData.data;
@@ -106,9 +95,9 @@ export default class Renderer {
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         if (this.mask[y * W + x] === 1) {
-          const depth = Math.min(1, y / H_FULL);
-          const [r, g, b] = this._lerpColor(colors.top, colors.deep, depth);
-          d[i] = r; d[i+1] = g; d[i+2] = b; d[i+3] = 255;
+          const rgb = this._terrainPixel(x, y, surfY[x - x0], this.mapType);
+          if (rgb) { d[i] = rgb[0]; d[i+1] = rgb[1]; d[i+2] = rgb[2]; d[i+3] = 255; }
+          else     { d[i+3] = 0; }
         } else {
           d[i+3] = 0;
         }
@@ -118,6 +107,102 @@ export default class Renderer {
     ctx.putImageData(imgData, x0, y0);
   }
 
+  // ─── Terrain pixel helpers ───────────────────────────────────────────────
+
+  _computeSurfaceY(x0, x1, mask, W, H) {
+    const len   = x1 - x0;
+    const surfY = new Int32Array(len);
+    for (let xi = 0; xi < len; xi++) {
+      const col = x0 + xi;
+      surfY[xi]  = H - 1;
+      for (let y = 0; y < H; y++) {
+        if (mask[y * W + col] === 1) { surfY[xi] = y; break; }
+      }
+    }
+    return surfY;
+  }
+
+  _nz(x, y) {
+    let h = Math.imul(x * 1619, y * 31337 + 1) ^ Math.imul(y, 0x9e3779b9);
+    h ^= h >>> 17;
+    h  = Math.imul(h, 0xbf324c81);
+    h ^= h >>> 13;
+    return ((h >>> 0) & 0xffff) / 65535;
+  }
+
+  _terrainPixel(x, y, sy, mapType) {
+    const d = y - sy;
+    if (d < 0) return null;
+    const n = this._nz(x, y);
+    switch (mapType) {
+      case 'cave':       return this._cavePx(d, n);
+      case 'hell':       return this._hellPx(d, n);
+      case 'snowfield':  return this._snowPx(d, n);
+      case 'island':     return this._islandPx(d, n);
+      case 'industrial': return this._industrialPx(d, n);
+      default:           return this._grassPx(d, n);
+    }
+  }
+
+  _grassPx(d, n) {
+    const ni = Math.round(n * 18);
+    if (d === 0) return [52 + ni, 165 + Math.round(n * 16), 30 + Math.round(n * 8)];
+    if (d <= 2) {
+      const t = d / 2;
+      return [Math.round(52 + ni + t * (108 - 52)), Math.round(165 + t * (78 - 165)), Math.round(30 + t * (42 - 30))];
+    }
+    if (d <= 18) {
+      const t = (d - 2) / 16;
+      return [Math.round(108 - t * 22 + ni), Math.round(78 - t * 15 + Math.round(n * 8)), Math.round(42 - t * 9 + Math.round(n * 4))];
+    }
+    if (d <= 55) {
+      const t = (d - 18) / 37;
+      return [Math.round(86 - t * 12 + ni), Math.round(63 - t * 12 + Math.round(n * 8)), Math.round(33 - t * 7 + Math.round(n * 3))];
+    }
+    // Rock layer
+    const t = Math.min(1, (d - 55) / 65);
+    return [Math.round(68 + t * 24 + ni), Math.round(58 + t * 20 + Math.round(n * 14)), Math.round(50 + t * 16 + Math.round(n * 12))];
+  }
+
+  _cavePx(d, n) {
+    const ni = Math.round(n * 22);
+    if (d === 0) return [130 + ni, 130 + ni, 130 + ni];
+    if (d <= 4)  return [85 + ni, 85 + ni, 82 + ni];
+    return [Math.max(28, 60 - d + ni), Math.max(25, 55 - d + ni), Math.max(22, 50 - d + ni)];
+  }
+
+  _hellPx(d, n) {
+    const ni = Math.round(n * 16);
+    if (d === 0) return [230 + Math.round(n * 10), 80 + ni, 20];
+    if (d <= 4)  return [165 + ni, 38 + ni, 10];
+    const t = Math.min(1, (d - 4) / 80);
+    return [Math.round(125 + t * 22 + ni), Math.round(14 + t * 6), 5];
+  }
+
+  _snowPx(d, n) {
+    const ni = Math.round(n * 20);
+    if (d === 0) return [225 + Math.round(n * 10), 240 + Math.round(n * 8), 255];
+    if (d <= 3)  return [185 + ni, 205 + ni, 235];
+    const t = Math.min(1, (d - 3) / 45);
+    return [Math.round(135 + t * 32 + ni), Math.round(155 + t * 22 + ni), Math.round(185 + t * 22 + ni)];
+  }
+
+  _islandPx(d, n) {
+    const ni = Math.round(n * 16);
+    if (d === 0) return [225 + ni, 205 + ni, 125 + Math.round(n * 10)];
+    if (d <= 3)  return [195 + ni, 165 + ni, 92];
+    const t = Math.min(1, (d - 3) / 55);
+    return [Math.round(145 + t * 22 + ni), Math.round(115 + t * 16 + ni), Math.round(62 + t * 10)];
+  }
+
+  _industrialPx(d, n) {
+    const ni = Math.round(n * 14);
+    if (d === 0) return [105 + ni, 105 + ni, 82 + ni];
+    const t = Math.min(1, d / 65);
+    return [Math.round(62 + t * 16 + ni), Math.round(62 + t * 10 + ni), Math.round(52 + t * 8 + ni)];
+  }
+
+  // kept for backwards compat with any external callers
   _mapColors(type) {
     const map = {
       grassland:  { top: [80,140,50],  deep: [60,40,20] },
