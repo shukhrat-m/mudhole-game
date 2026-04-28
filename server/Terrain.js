@@ -79,36 +79,6 @@ class Terrain {
       heights[x] = Math.round(Math.max(80, Math.min(this.waterLevel - 80, h)));
     }
     this._fillBelow(heights);
-
-    // Underground caves and tunnel networks
-    const rng2 = this._seededRng(4242);
-
-    // Scattered cave pockets — good for digging into or sheltering
-    for (let i = 0; i < 12; i++) {
-      const cx = Math.floor(rng2() * (W - 400) + 200);
-      const surfY = heights[Math.min(W - 1, cx)];
-      const maxDepth = Math.max(10, this.waterLevel - surfY - 140);
-      const cy = surfY + 80 + Math.floor(rng2() * maxDepth);
-      if (cy > 0 && cy < this.waterLevel - 60) {
-        this.carveCircle(cx, cy, 38 + rng2() * 45);
-      }
-    }
-
-    // Tunnel chains — winding underground passages connecting caves
-    for (let i = 0; i < 5; i++) {
-      let cx = Math.floor(rng2() * (W - 800) + 400);
-      let cy = Math.floor(H * 0.62 + rng2() * 100);
-      const steps = 5 + Math.floor(rng2() * 5);
-      for (let j = 0; j < steps; j++) {
-        if (cy < this.waterLevel - 50) {
-          this.carveCircle(cx, cy, 40 + rng2() * 35);
-        }
-        cx += (rng2() - 0.5) * 300;
-        cy += (rng2() - 0.4) * 60; // slight upward bias
-        cx = Math.max(200, Math.min(W - 200, cx));
-        cy = Math.max(300, Math.min(this.waterLevel - 60, cy));
-      }
-    }
   }
 
   _genSnowfield() {

@@ -26,21 +26,47 @@ export default class Particles {
       });
     }
 
+    // Smoke puffs
+    for (let i = 0; i < 7; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist  = Math.random() * radius * 0.45;
+      this._particles.push({
+        type:  'smoke',
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        vx: (Math.random() - 0.5) * 0.9,
+        vy: -0.7 - Math.random() * 0.9,
+        life: 55 + Math.random() * 40,
+        maxLife: 95,
+        size: 9 + Math.random() * (radius * 0.28),
+        color: `rgba(${48+Math.random()*28|0},${44+Math.random()*22|0},${36+Math.random()*18|0},0.52)`,
+        gravity: -0.014,
+      });
+    }
+
     // Shockwave
     this._particles.push({
       type: 'ring',
       x, y,
       radius: 5,
-      maxRadius: radius * 1.5,
-      life: 20, maxLife: 20,
+      maxRadius: radius * 2.2,
+      life: 28, maxLife: 28,
     });
 
-    // Вспышка
+    // White-hot inner flash
+    this._particles.push({
+      type: 'flash',
+      x, y,
+      radius: radius * 0.45,
+      life: 5, maxLife: 5,
+    });
+
+    // Outer orange flash
     this._particles.push({
       type: 'flash',
       x, y,
       radius,
-      life: 8, maxLife: 8,
+      life: 10, maxLife: 10,
     });
   }
 
@@ -80,6 +106,21 @@ export default class Particles {
         rotSpeed: (Math.random() - 0.5) * 0.2,
       });
     }
+  }
+
+  spawnProjectileSmoke(x, y, color) {
+    this._particles.push({
+      type: 'smoke',
+      x: x + (Math.random() - 0.5) * 5,
+      y: y + (Math.random() - 0.5) * 5,
+      vx: (Math.random() - 0.5) * 0.7,
+      vy: -0.5 - Math.random() * 0.6,
+      life: 20 + Math.random() * 14,
+      maxLife: 34,
+      size: 5 + Math.random() * 6,
+      color,
+      gravity: -0.012,
+    });
   }
 
   spawnWaterSplash(x, y) {
@@ -128,6 +169,10 @@ export default class Particles {
       if (p.life <= 0) { this._particles.splice(i, 1); continue; }
 
       if (p.type === 'ring' || p.type === 'flash') continue;
+      if (p.type === 'smoke') {
+        p.vy += p.gravity; p.x += p.vx; p.y += p.vy;
+        continue;
+      }
       if (p.type === 'confetti' || p.type === 'dirt') {
         p.vy += p.gravity;
         p.x += p.vx;
@@ -150,11 +195,23 @@ export default class Particles {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (p.type === 'smoke') {
+        const r = p.size * (0.7 + (1 - alpha) * 1.9);
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
       } else if (p.type === 'flash') {
-        const r = p.radius * (1 - p.life / p.maxLife * 0.3);
+        const r = p.radius * (1 - p.life / p.maxLife * 0.25);
+        const isHot = p.radius < p.maxRadius * 0.5; // inner flash is smaller
         const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-        grad.addColorStop(0, 'rgba(255,220,100,0.8)');
-        grad.addColorStop(1, 'rgba(255,100,0,0)');
+        if (isHot) {
+          grad.addColorStop(0,    'rgba(255,255,230,0.95)');
+          grad.addColorStop(0.35, 'rgba(255,240,140,0.75)');
+          grad.addColorStop(1,    'rgba(255,180,40,0)');
+        } else {
+          grad.addColorStop(0,    'rgba(255,200,80,0.85)');
+          grad.addColorStop(0.4,  'rgba(255,100,10,0.55)');
+          grad.addColorStop(1,    'rgba(200,50,0,0)');
+        }
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);

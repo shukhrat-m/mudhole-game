@@ -166,10 +166,9 @@ export default class GameScreen {
 
     this._projList.forEach(p => {
       if (p.type === 'mine') return;
-      const maxTrail = p.type === 'bullet' ? 8 : 22;
+      const maxTrail = p.type === 'bullet' ? 20 : 60;
       p.trail.push({ x: p.x, y: p.y });
       if (p.trail.length > maxTrail) p.trail.shift();
-      // Tumble grenades instead of pointing toward velocity
       if (p.type === 'grenade' || p.type === 'holy_grenade') {
         p._spin = ((p._spin || 0) + 4 * PHYS_STEP);
       }
@@ -177,6 +176,17 @@ export default class GameScreen {
       p.vy += p.gravity * PHYS_STEP;
       p.x  += p.vx * PHYS_STEP;
       p.y  += p.vy * PHYS_STEP;
+      // Smoke puff every 3 frames for non-bullet projectiles
+      if (p.type !== 'bullet') {
+        p._smokeFrame = ((p._smokeFrame || 0) + 1);
+        if (p._smokeFrame % 3 === 0) {
+          const sc = p.type === 'bazooka'        ? 'rgba(110,80,40,0.6)'
+                   : p.type === 'holy_grenade'   ? 'rgba(255,215,50,0.4)'
+                   : p.type === 'airstrike_bomb' ? 'rgba(65,65,65,0.55)'
+                   :                               'rgba(90,105,70,0.5)';
+          this._particles.spawnProjectileSmoke(p.x, p.y, sc);
+        }
+      }
     });
 
     Object.values(this._worms).forEach(w => {
@@ -188,7 +198,7 @@ export default class GameScreen {
     const flyingProj = this._projList.find(p => p.type !== 'mine');
     const targetWorm = this._worms[this._currentId || this._myId];
     if (flyingProj) {
-      this._renderer.followTarget(flyingProj.x, flyingProj.y);
+      this._renderer.followTarget(flyingProj.x, flyingProj.y, 0.14);
     } else if (targetWorm) {
       if (this._myTurn && this._input && this._input.getWeapon() === 'airstrike') {
         this._renderer.followTarget(this._input.getAirstrikeX(), targetWorm.y);
@@ -429,15 +439,15 @@ export default class GameScreen {
       const isBullet = p.type === 'bullet';
       const len = p.trail.length;
 
-      // Outer soft glow pass
+      // Outer glow pass
       for (let i = 1; i < len; i++) {
         const t = i / len;
-        ctx.globalAlpha  = t * (isBullet ? 0.35 : 0.28);
+        ctx.globalAlpha  = t * (isBullet ? 0.50 : 0.45);
         ctx.strokeStyle  = col;
-        ctx.lineWidth    = t * (isBullet ? 5 : 12);
+        ctx.lineWidth    = t * (isBullet ? 8 : 20);
         ctx.lineCap      = 'round';
         ctx.shadowColor  = col;
-        ctx.shadowBlur   = 10;
+        ctx.shadowBlur   = 14;
         ctx.beginPath();
         ctx.moveTo(p.trail[i-1].x, p.trail[i-1].y);
         ctx.lineTo(p.trail[i].x,   p.trail[i].y);
@@ -446,11 +456,23 @@ export default class GameScreen {
       // Inner bright core pass
       for (let i = 1; i < len; i++) {
         const t = i / len;
-        ctx.globalAlpha  = t * (isBullet ? 0.9 : 0.75);
+        ctx.globalAlpha  = t;
         ctx.strokeStyle  = col;
-        ctx.lineWidth    = t * (isBullet ? 2 : 4);
+        ctx.lineWidth    = t * (isBullet ? 3 : 9);
         ctx.lineCap      = 'round';
         ctx.shadowBlur   = 0;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[i-1].x, p.trail[i-1].y);
+        ctx.lineTo(p.trail[i].x,   p.trail[i].y);
+        ctx.stroke();
+      }
+      // White hot core — newest 40% of trail
+      const hotStart = Math.max(1, Math.floor(len * 0.6));
+      for (let i = hotStart; i < len; i++) {
+        const t = (i / len - 0.6) / 0.4;
+        ctx.globalAlpha  = Math.max(0, t) * 0.55;
+        ctx.strokeStyle  = '#ffffff';
+        ctx.lineWidth    = Math.max(0.5, t * (isBullet ? 1.5 : 3.5));
         ctx.beginPath();
         ctx.moveTo(p.trail[i-1].x, p.trail[i-1].y);
         ctx.lineTo(p.trail[i].x,   p.trail[i].y);
@@ -469,114 +491,96 @@ export default class GameScreen {
     switch (p.type) {
 
       case 'grenade': {
-        // Tumble freely — looks like a real thrown grenade
         ctx.rotate(p._spin || 0);
-        // Outer glow
-        ctx.shadowColor = '#88ccff'; ctx.shadowBlur = 16;
-        // Body
-        const gBody = ctx.createRadialGradient(-2, -2, 0, 0, 0, 9);
-        gBody.addColorStop(0, '#a0b880');
+        ctx.shadowColor = '#88ccff'; ctx.shadowBlur = 32;
+        const gBody = ctx.createRadialGradient(-3, -3, 0, 0, 0, 14);
+        gBody.addColorStop(0, '#c0d8a0');
         gBody.addColorStop(0.5, '#6a8050');
         gBody.addColorStop(1, '#384520');
         ctx.fillStyle = gBody;
-        ctx.strokeStyle = '#202c12'; ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        // Segmentation lines
-        ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(9, 0); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, 9); ctx.stroke();
-        // Fuse
-        ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -14); ctx.stroke();
-        // Fuse spark
-        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 10;
-        ctx.fillStyle = `rgba(255,${120 + Math.random()*100|0},0,${0.8 + Math.random()*0.2})`;
-        ctx.beginPath(); ctx.arc(0, -14, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#202c12'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, 0, 14, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(14, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(0, 14); ctx.stroke();
+        ctx.strokeStyle = '#999'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(0, -22); ctx.stroke();
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 18;
+        ctx.fillStyle = `rgba(255,${120 + Math.random()*100|0},0,${0.85 + Math.random()*0.15})`;
+        ctx.beginPath(); ctx.arc(0, -22, 3.5, 0, Math.PI * 2); ctx.fill();
         break;
       }
 
       case 'holy_grenade': {
         ctx.rotate(p._spin || 0);
-        // Outer aura
-        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 28;
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 42;
         const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.006);
-        ctx.globalAlpha = 0.25 * pulse;
+        ctx.globalAlpha = 0.3 * pulse;
         ctx.fillStyle = '#fff8a0';
-        ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
-        // Body
-        const hBody = ctx.createRadialGradient(-3, -3, 0, 0, 0, 11);
+        const hBody = ctx.createRadialGradient(-4, -4, 0, 0, 0, 16);
         hBody.addColorStop(0, '#fff8c0');
         hBody.addColorStop(0.5, '#ffd700');
         hBody.addColorStop(1, '#b8860b');
         ctx.fillStyle = hBody;
-        ctx.strokeStyle = '#8b6000'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        // Cross
-        ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
-        ctx.shadowBlur = 6; ctx.shadowColor = '#fff';
-        ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke();
+        ctx.strokeStyle = '#8b6000'; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.shadowBlur = 10; ctx.shadowColor = '#fff';
+        ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(7, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(0, 7); ctx.stroke();
         break;
       }
 
       case 'bazooka': {
         ctx.rotate(flightAngle);
-        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 18;
-        // Body
-        ctx.fillStyle = '#8aaa6a'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.roundRect(-16, -5, 32, 10, 4); ctx.fill(); ctx.stroke();
-        // Tip cone
+        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 32;
+        ctx.fillStyle = '#8aaa6a'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.roundRect(-22, -7, 42, 14, 5); ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#cc4400';
-        ctx.beginPath(); ctx.moveTo(16,-5); ctx.lineTo(26,0); ctx.lineTo(16,5); ctx.closePath(); ctx.fill();
-        // Stripe
+        ctx.beginPath(); ctx.moveTo(20,-7); ctx.lineTo(33,0); ctx.lineTo(20,7); ctx.closePath(); ctx.fill();
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillRect(-4, -5, 4, 10);
-        // Exhaust flame
+        ctx.fillRect(-6, -7, 5, 14);
         const fl = 0.65 + Math.random() * 0.35;
-        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 14;
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 22;
         ctx.fillStyle = `rgba(255,130,0,${fl})`;
-        ctx.beginPath(); ctx.moveTo(-16,-5); ctx.lineTo(-16-13*fl,0); ctx.lineTo(-16,5); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-22,-7); ctx.lineTo(-22-18*fl,0); ctx.lineTo(-22,7); ctx.closePath(); ctx.fill();
         ctx.fillStyle = `rgba(255,240,80,${fl*0.85})`;
-        ctx.beginPath(); ctx.moveTo(-16,-3); ctx.lineTo(-16-8*fl,0); ctx.lineTo(-16,3); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = `rgba(255,255,200,${fl*0.5})`;
-        ctx.beginPath(); ctx.moveTo(-16,-1.5); ctx.lineTo(-16-4*fl,0); ctx.lineTo(-16,1.5); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-22,-4); ctx.lineTo(-22-11*fl,0); ctx.lineTo(-22,4); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,220,${fl*0.55})`;
+        ctx.beginPath(); ctx.moveTo(-22,-2); ctx.lineTo(-22-5*fl,0); ctx.lineTo(-22,2); ctx.closePath(); ctx.fill();
         break;
       }
 
       case 'bullet': {
         ctx.rotate(flightAngle);
-        ctx.shadowColor = '#ffee44'; ctx.shadowBlur = 12;
-        const bGrad = ctx.createLinearGradient(-6, -2, 6, 2);
+        ctx.shadowColor = '#ffee44'; ctx.shadowBlur = 22;
+        const bGrad = ctx.createLinearGradient(-9, -3.5, 9, 3.5);
         bGrad.addColorStop(0, '#ffee88');
         bGrad.addColorStop(0.5, '#ffcc00');
         bGrad.addColorStop(1, '#cc8800');
         ctx.fillStyle = bGrad;
-        ctx.strokeStyle = '#884400'; ctx.lineWidth = 0.6;
-        ctx.beginPath(); ctx.roundRect(-6, -2.5, 12, 5, 2.5); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = '#884400'; ctx.lineWidth = 0.8;
+        ctx.beginPath(); ctx.roundRect(-9, -3.5, 18, 7, 3.5); ctx.fill(); ctx.stroke();
         break;
       }
 
       case 'airstrike_bomb': {
-        ctx.rotate(Math.PI / 2); // falls nose-down
-        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 16;
-        // Body
-        ctx.fillStyle = '#3a3a3a'; ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.2;
-        ctx.beginPath(); ctx.ellipse(0, 0, 7, 16, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        // Nose cone — red
+        ctx.rotate(Math.PI / 2);
+        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 28;
+        ctx.fillStyle = '#3a3a3a'; ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.ellipse(0, 0, 11, 24, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#cc2200';
-        ctx.beginPath(); ctx.ellipse(0, -13, 4, 6, 0, 0, Math.PI * 2); ctx.fill();
-        // Stripe
+        ctx.beginPath(); ctx.ellipse(0, -20, 6, 8, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#ffcc00';
-        ctx.fillRect(-7, -4, 14, 3);
-        // Fins
+        ctx.fillRect(-11, -6, 22, 4);
         ctx.fillStyle = '#555';
-        ctx.beginPath(); ctx.moveTo(-7, 10); ctx.lineTo(-14, 18); ctx.lineTo(-7, 16); ctx.closePath(); ctx.fill();
-        ctx.beginPath(); ctx.moveTo( 7, 10); ctx.lineTo( 14, 18); ctx.lineTo( 7, 16); ctx.closePath(); ctx.fill();
-        // Whistle glow at nose
-        ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 20;
-        ctx.fillStyle = `rgba(255,100,0,${0.4 + Math.random()*0.3})`;
-        ctx.beginPath(); ctx.arc(0, -15, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-11, 14); ctx.lineTo(-20, 26); ctx.lineTo(-11, 22); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo( 11, 14); ctx.lineTo( 20, 26); ctx.lineTo( 11, 22); ctx.closePath(); ctx.fill();
+        ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 30;
+        ctx.fillStyle = `rgba(255,100,0,${0.5 + Math.random()*0.4})`;
+        ctx.beginPath(); ctx.arc(0, -24, 6, 0, Math.PI * 2); ctx.fill();
         break;
       }
     }
@@ -670,6 +674,7 @@ export default class GameScreen {
   _onProjectile(msg) {
     this._projList.push({ ...msg, gravity: msg.type === 'bullet' ? 0.1 : 0.4, trail: [] });
     this._sound.playShot(msg.weapon || msg.type, msg.x);
+    if (this._renderer) this._renderer.snapTo(msg.x, msg.y);
   }
 
   _onProjectileBounce(msg) {

@@ -1,85 +1,165 @@
-# MUDHOLE 🪱
+# MUDHOLE
 
-Multiplayer браузерная игра в стиле Worms. До 15 игроков, 2 команды, разрушаемый terrain, 6 оружий.
+A browser-based multiplayer Worms-style game. Up to 15 players, 2 teams, destructible terrain, 6 weapons, real-time WebSocket gameplay.
 
-## Быстрый старт
+## Quick Start
 
 ```bash
 npm install
 npm start
 ```
 
-Открыть: http://localhost:3000
+Open: **http://localhost:3000**
 
-## Как подключить друзей
+## Connecting Friends
 
-### Одна сеть (WiFi)
-Узнать IP: `ipconfig` → IPv4 адрес  
-Друзья вводят: `192.168.x.x:3000`
+### Same Network (Wi-Fi / LAN)
+Find your IP: `ipconfig` → IPv4 address  
+Friends connect to: `192.168.x.x:3000`
 
-### Через ngrok (разные сети)
-
-1. Скачать ngrok: https://ngrok.com/download
-2. В отдельном терминале:
+### Over the Internet (ngrok)
+1. Download ngrok: https://ngrok.com/download
+2. In a separate terminal:
 ```bash
 ngrok http 3000
 ```
-3. Скопировать ссылку вида `https://abc123.ngrok.io`
-4. Отправить друзьям — вводят в поле "Подключиться"
+3. Copy the `https://abc123.ngrok.io` link and share it  
+4. Friends paste it into the "Join" field  
+   (Or click **Copy Link** in the lobby — the server picks up the ngrok URL automatically)
 
-Или нажать **"Скопировать ссылку"** в лобби — сервер подтянет ngrok URL автоматически.
+---
 
-## Управление
+## Controls
 
-| Клавиша | Действие |
-|---|---|
-| ← → | Движение |
-| ↑ | Прыжок |
-| Мышь | Прицел |
-| ЛКМ | Выстрел |
-| 1 | Граната |
-| 2 | Базука |
-| 3 | Автомат |
-| 4 | Авиаудар |
-| 5 | Святая граната |
-| 6 | Мина |
-| Tab | Пропустить ход |
+| Key | Action |
+|-----|--------|
+| `← →` | Move |
+| `↑ ↓` | Aim up / down |
+| `Space` | Jump |
+| Mouse | Aim (tracks cursor) |
+| Click / `Enter` | Fire |
+| `1` | Grenade |
+| `2` | Bazooka |
+| `3` | Machine Gun |
+| `4` | Airstrike |
+| `5` | Holy Grenade |
+| `6` | Mine |
+| `Tab` | End turn |
 
-## Карты
+Mobile: virtual buttons appear automatically on touch devices.
 
-- **Луга** — стандартная карта, плавные холмы
-- **Пещеры** — туннели, ограниченное пространство
-- **Остров** — вода по краям (смерть при падении)
-- **Завод** — платформы, вертикальный геймплей
-- **Ад** — зазубренный рельеф, лавовые ямы
-- **Снежные поля** — пологий рельеф, открытые бои
+---
 
-## Оружия
+## Weapons
 
-| Оружие | Урон | Радиус | Особенность |
-|---|---|---|---|
-| Граната | 50 | 60px | Отскакивает, взрыв через 3с |
-| Базука | 60 | 40px | Прямой выстрел по дуге |
-| Автомат | 12×8 | — | 8 пуль, не ломает terrain |
-| Авиаудар | 75 | 80px | 3 бомбы по выбранной точке |
-| Святая граната | 100 | 120px | Взрыв через 5с, огромный |
-| Мина | 80 | 50px | Ставится, взрывается от врага |
+| Weapon | Max Damage | Blast Radius | Notes |
+|--------|-----------|--------------|-------|
+| Grenade | 32 | 60 px | Bounces up to 3×, fuse 3 s |
+| Bazooka | 38 | 40 px | Arced direct shot |
+| Machine Gun | 8 × 8 bullets | 8 px | Spread fire, doesn't damage terrain |
+| Airstrike | 45 | 80 px | 3 bombs drop at a chosen x-position |
+| Holy Grenade | 60 | 120 px | 2 bounces, enormous 5 s fuse blast |
+| Mine | 50 | 50 px | Placed at feet, triggers on enemy proximity |
 
-## Звуки
+Ammo per player per game: Grenade ×6 · Bazooka ×5 · Machine Gun ×4 · Airstrike ×1 · Holy Grenade ×1 · Mine ×3
 
-Скачать бесплатные звуки CC0 с freesound.org и положить в `client/assets/sounds/`:
+---
 
-- `explosion.wav` — взрыв
-- `bazooka.wav` — выстрел базуки
-- `machinegun.wav` — очередь
-- `jump.wav` — прыжок
-- `step.wav` — шаги
-- `hurt.wav` — получил урон
-- `death.wav` — смерть
-- `airstrike.wav` — свист бомбы
-- `win.wav` — победа
-- `splash.wav` — вода
-- `click.wav` — UI
-- `tick.wav` — таймер
+## Game Rules
 
-Без звуков игра работает нормально.
+- Two teams: **Blue (A)** vs **Red (B)**
+- Players take turns — 30 seconds each
+- After firing you get a **retreat window** to move before the next turn
+- Wind changes every turn and affects all projectiles except bullets
+- Worms take **fall damage** for large drops
+- Explosions apply **knockback**
+- A worm that falls into the water dies instantly
+- Last team standing wins
+- If one team has 2+ fewer players, they receive a **+20% HP bonus**
+
+---
+
+## HUD
+
+- **HP bar + name** above each worm
+- **Turn timer** (turns orange → "RETREAT!" after firing)
+- **Wind indicator** with directional bars and strength
+- **Next player** preview
+- **Score** per team
+- **Minimap** (bottom-left corner)
+- **Weapon panel** with ammo counts
+
+---
+
+## Maps
+
+All maps are 3840 × 800 pixels.
+
+| Map | Description |
+|-----|-------------|
+| Grassland | Rolling hills, standard gameplay |
+| Cave | Enclosed underground tunnel system |
+| Island | Central landmass, water on both sides |
+| Industrial | Flat floor + elevated platforms |
+| Hell | Jagged peaks, lava pit edges |
+| Snowfield | Gentle slopes, open long-range combat |
+
+---
+
+## Architecture
+
+```
+mudhole/
+├── server/
+│   ├── index.js        — Express + WebSocket server
+│   ├── GameRoom.js     — Room state, turn system, player actions
+│   ├── Physics.js      — Worm movement, projectile simulation (50 Hz)
+│   ├── Weapons.js      — Projectile factories, burst/airstrike/mine
+│   ├── Terrain.js      — Procedural map generation, RLE serialization
+│   └── config.js       — Shared constants (HP, ammo, physics, tick rate)
+└── client/
+    ├── index.html      — Canvas stack, HUD, CSS
+    └── js/
+        ├── main.js                 — Screen router, WebSocket wrapper
+        ├── screens/
+        │   ├── MainMenu.js         — Animated demo battle on title screen
+        │   ├── Game.js             — Core game loop, network events, rendering
+        │   ├── Lobby.js            — Pre-game room
+        │   ├── GameOver.js         — End screen
+        │   ├── CreateServer.js
+        │   ├── JoinServer.js
+        │   └── Settings.js
+        └── game/
+            ├── Renderer.js         — 5-layer canvas: bg / terrain / game / fx / ui-game
+            ├── WormRenderer.js     — Per-worm drawing (body, hat, eyes, weapon)
+            ├── InputHandler.js     — Keyboard, mouse, touch, virtual buttons
+            ├── UI.js               — HUD panel updates
+            └── Minimap.js          — Bottom-left minimap
+        └── utils/
+            ├── Particles.js        — Explosion debris, smoke, worm death, confetti
+            └── SoundManager.js     — Web Audio sound effects
+```
+
+### Rendering pipeline (60 fps client, 50 Hz server)
+```
+canvas-bg       ← sky gradient, parallax hills, clouds
+canvas-terrain  ← destructible terrain (OffscreenCanvas, RLE-patched on explosion)
+canvas-game     ← worms, projectiles + trails, aim indicators
+canvas-effects  ← particles, floating damage numbers
+canvas-ui-game  ← aim line input capture (transparent, pointer-events)
+```
+
+### Network flow
+- Server broadcasts `state` (worm positions) every 20 ms during active turns
+- Projectile events: `projectile` (on fire), `projectile_bounce`, `explosion`
+- Turn events: `turn_start`, `timer`, `retreat`, `turn_end`
+- Terrain updates: RLE-encoded delta patches sent after each explosion
+
+---
+
+## Sound Files (optional)
+
+Place CC0 audio files in `client/assets/sounds/` — game works fine without them:
+
+`explosion.wav` · `bazooka.wav` · `machinegun.wav` · `jump.wav` · `step.wav`  
+`hurt.wav` · `death.wav` · `airstrike.wav` · `win.wav` · `splash.wav` · `click.wav` · `tick.wav`

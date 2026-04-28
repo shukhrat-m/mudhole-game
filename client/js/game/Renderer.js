@@ -28,6 +28,20 @@ export default class Renderer {
 
     // Облака для параллакса
     this._clouds = this._genClouds();
+    this._stars  = this._genStars();
+    this._bgT    = 0;
+    this._bgDrawn = false;
+
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  resize() {
+    const W = window.innerWidth, H = window.innerHeight;
+    [this.bgCanvas, this.terrainCanvas, this.gameCanvas, this.fxCanvas, this.uiGameCanvas].forEach(c => {
+      c.width  = W;
+      c.height = H;
+    });
     this._bgDrawn = false;
   }
 
@@ -228,17 +242,18 @@ export default class Renderer {
   drawBackground(dt) {
     const W = this.bgCanvas.width, H = this.bgCanvas.height;
     const ctx = this.bgCtx;
+    this._bgT += dt || 1;
 
     ctx.clearRect(0, 0, W, H);
 
-    // Небо
+    // Небо — чуть темнее для контраста со звёздами
     const skyColors = {
-      grassland:  ['#1a2a4a','#3a5a8a'],
+      grassland:  ['#0e1828','#1e3858'],
       cave:       ['#0a0a0a','#1a1a2a'],
-      island:     ['#1a3a6a','#4a8aaa'],
-      industrial: ['#1a1a2a','#2a2a3a'],
-      hell:       ['#3a0a0a','#6a1a1a'],
-      snowfield:  ['#1a2a3a','#3a5a7a'],
+      island:     ['#0e2244','#2a5878'],
+      industrial: ['#0e0e18','#1e1e2e'],
+      hell:       ['#2a0808','#580e0e'],
+      snowfield:  ['#0e1824','#1e3858'],
     };
     const [sky1, sky2] = skyColors[this.mapType] || skyColors.grassland;
     const grad = ctx.createLinearGradient(0, 0, 0, H);
@@ -247,22 +262,22 @@ export default class Renderer {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
+    // Звёзды
+    this._drawStars(ctx, W, H);
+
     // Параллакс горы/холмы на фоне
     this._drawBgHills(ctx, W, H);
 
-    // Облака
+    // Облака (починенный parallax wrap)
     this._clouds.forEach(c => {
       c.x -= c.speed * (dt || 1);
-      if (c.x + c.w < -this.camX) c.x = W - this.camX + 50;
-
-      const sx = (c.x - this.camX * 0.3) % (W + 200) - 100;
+      const sx = c.x - this.camX * 0.3;
+      if (sx + c.w < -20) c.x += (W + c.w + 40) / 0.3;
       this._drawCloud(ctx, sx, c.y, c.w, c.h, c.alpha);
     });
 
-    // Вода
-    if (this.mapType !== 'cave') {
-      this._drawWater(ctx, W, H);
-    }
+    // Виньетка
+    this._drawVignette(ctx, W, H);
   }
 
   _drawBgHills(ctx, W, H) {
@@ -288,24 +303,7 @@ export default class Renderer {
     ctx.fill();
   }
 
-  _drawWater(ctx, W, H) {
-    const waterY = H * 0.92;
-    const wGrad = ctx.createLinearGradient(0, waterY, 0, H);
-    wGrad.addColorStop(0, 'rgba(20,80,180,0.7)');
-    wGrad.addColorStop(1, 'rgba(10,40,120,0.9)');
-    ctx.fillStyle = wGrad;
-    ctx.beginPath();
-    ctx.moveTo(0, waterY);
-    const t = Date.now() * 0.001;
-    for (let x = 0; x <= W; x += 8) {
-      ctx.lineTo(x, waterY + Math.sin(x * 0.03 + t) * 3);
-    }
-    ctx.lineTo(W, H); ctx.lineTo(0, H);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  _drawCloud(ctx, x, y, w, h, alpha) {
+_drawCloud(ctx, x, y, w, h, alpha) {
     // Blob layout: [relX, relY, relRadius, brightness]
     const blobs = [
       [0.12, 0.70, 0.20, 0.80],
@@ -359,6 +357,49 @@ export default class Renderer {
     return clouds;
   }
 
+  _genStars() {
+    return Array.from({ length: 120 }, (_, i) => ({
+      nx:    (i * 137.508) % 1,
+      ny:    (i * 97.314)  % 0.52,
+      r:     0.5 + ((i * 0.618) % 1) * 1.5,
+      phase: (i * 2.399)   % (Math.PI * 2),
+      spd:   0.005 + ((i * 0.317) % 1) * 0.014,
+    }));
+  }
+
+  _drawStars(ctx, W, H) {
+    const t = this._bgT;
+    this._stars.forEach(s => {
+      const a = 0.25 + 0.55 * Math.sin(t * s.spd + s.phase);
+      ctx.globalAlpha = Math.max(0, a);
+      const sx = s.nx * W, sy = s.ny * H;
+      if (s.r > 1.4) {
+        ctx.strokeStyle = '#cce4ff';
+        ctx.lineWidth   = s.r * 0.45;
+        ctx.beginPath();
+        ctx.moveTo(sx - s.r * 2.2, sy); ctx.lineTo(sx + s.r * 2.2, sy);
+        ctx.moveTo(sx, sy - s.r * 2.2); ctx.lineTo(sx, sy + s.r * 2.2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ddeeff';
+      ctx.beginPath(); ctx.arc(sx, sy, s.r, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  _drawVignette(ctx, W, H) {
+    const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.18, W / 2, H / 2, H * 0.92);
+    vig.addColorStop(0,   'rgba(0,0,0,0)');
+    vig.addColorStop(0.55,'rgba(0,0,0,0.06)');
+    vig.addColorStop(1,   'rgba(0,0,0,0.68)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+    const top = ctx.createLinearGradient(0, 0, 0, H * 0.10);
+    top.addColorStop(0, 'rgba(0,0,0,0.50)');
+    top.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = top; ctx.fillRect(0, 0, W, H * 0.10);
+  }
+
   // ─── Рисовать terrain поверх экрана ──────────────────────────────────────
 
   drawTerrain() {
@@ -375,12 +416,12 @@ export default class Renderer {
 
   // ─── Camera ──────────────────────────────────────────────────────────────
 
-  followTarget(tx, ty) {
+  followTarget(tx, ty, lerp = 0.08) {
     const W = this.gameCanvas.width, H = this.gameCanvas.height;
     const targetCamX = tx * this.zoom - W / 2;
     const targetCamY = ty * this.zoom - H / 2;
-    this.camX += (targetCamX - this.camX) * 0.08;
-    this.camY += (targetCamY - this.camY) * 0.08;
+    this.camX += (targetCamX - this.camX) * lerp;
+    this.camY += (targetCamY - this.camY) * lerp;
     this.camX = Math.max(0, Math.min(W_FULL * this.zoom - W, this.camX));
     this.camY = Math.max(0, Math.min(H_FULL * this.zoom - H, this.camY));
   }
