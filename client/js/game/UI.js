@@ -21,7 +21,7 @@ export default class UI {
   setOnWeaponSelect(fn) { this._onWeaponSelect = fn; }
   setOnLeave(fn)        { this._onLeave = fn; }
 
-  update({ worms, currentPlayerId, myId, timeLeft, myTurn, scores, myAmmo }) {
+  update({ worms, currentPlayerId, nextPlayerId, myId, timeLeft, myTurn, retreating, wind, scores, myAmmo }) {
     this._myTurn = myTurn;
 
     const seenA = new Set(), seenB = new Set();
@@ -37,9 +37,44 @@ export default class UI {
     const currentWorm = worms.find(w => w.id === currentPlayerId);
     topEl.querySelector('#hud-turn-name').textContent = currentWorm ? currentWorm.name : '—';
 
+    const labelEl = topEl.querySelector('.hud-turn-label');
+    if (labelEl) {
+      labelEl.textContent = retreating ? 'RETREAT!' : 'NOW PLAYING';
+      labelEl.style.color = retreating ? '#ff9900' : '';
+    }
+
     const timerEl = topEl.querySelector('#hud-timer');
     timerEl.textContent = timeLeft;
-    timerEl.classList.toggle('urgent', timeLeft <= 10);
+    timerEl.classList.toggle('urgent', timeLeft <= 10 && !retreating);
+    timerEl.classList.toggle('retreat', !!retreating);
+
+    const nextEl = topEl.querySelector('#hud-next');
+    if (nextEl) {
+      const nw = nextPlayerId ? worms.find(w => w.id === nextPlayerId) : null;
+      if (nw) {
+        nextEl.textContent = `▶ ${this._esc(nw.name)}`;
+        nextEl.style.color = nw.team === 'A' ? '#4a9eff' : '#ff4a4a';
+      } else {
+        nextEl.textContent = '';
+      }
+    }
+
+    const windEl = topEl.querySelector('#hud-wind');
+    if (windEl) {
+      const abs = Math.abs(wind ?? 0);
+      if (abs === 0) {
+        windEl.innerHTML = '<span class="hud-wind-calm">CALM</span>';
+      } else {
+        const dir    = wind < 0 ? '←' : '→';
+        const filled = '▮'.repeat(abs);
+        const empty  = '▯'.repeat(5 - abs);
+        const bars   = wind < 0 ? `${filled}${empty}` : `${empty}${filled}`;
+        windEl.innerHTML = wind < 0
+          ? `<span class="hud-wind-arrow">${dir}</span><span class="hud-wind-bars">${bars}</span>`
+          : `<span class="hud-wind-bars">${bars}</span><span class="hud-wind-arrow">${dir}</span>`;
+        windEl.style.color = abs >= 4 ? '#ff9900' : '#cce4ff';
+      }
+    }
 
     topEl.querySelector('#hud-team-a').innerHTML =
       `<div class="hud-team-title hud-team-title-a">Team A <span class="hud-score">${(scores || {}).A ?? 0}</span></div>` +
@@ -50,10 +85,10 @@ export default class UI {
       tB.map(w => this._wormRow(w, w.id === currentPlayerId)).join('');
 
     const wpEl = this._hud.querySelector('#hud-weapons');
-    if (wpEl) wpEl.style.display = myTurn ? 'flex' : 'none';
+    if (wpEl) wpEl.style.display = (myTurn && !retreating) ? 'flex' : 'none';
 
     const hintEl = this._hud.querySelector('#hud-controls-hint');
-    if (hintEl) hintEl.style.display = myTurn ? 'block' : 'none';
+    if (hintEl) hintEl.style.display = (myTurn && !retreating) ? 'block' : 'none';
 
     // Update ammo badges
     if (myAmmo) {
@@ -103,6 +138,8 @@ export default class UI {
           <div class="hud-turn-label">NOW PLAYING</div>
           <div class="hud-turn-name" id="hud-turn-name">—</div>
           <div class="hud-timer" id="hud-timer">30</div>
+          <div id="hud-wind" class="hud-wind"><span class="hud-wind-calm">CALM</span></div>
+          <div id="hud-next" class="hud-next"></div>
         </div>
 
         <div class="hud-team right" id="hud-team-b"></div>

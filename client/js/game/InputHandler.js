@@ -12,6 +12,7 @@ export default class InputHandler {
     this._mouseWorld  = { x: 0, y: 0 };
     this._myTurn      = false;
     this._hasFired    = false;
+    this._inRetreat   = false;
     this._moveInterval = null;
     this._moveDir     = null;
     this._aimInterval  = null;
@@ -39,13 +40,16 @@ export default class InputHandler {
   }
 
   setTurn(isMyTurn) {
-    this._myTurn   = isMyTurn;
-    this._hasFired = false;
+    this._myTurn    = isMyTurn;
+    this._hasFired  = false;
+    this._inRetreat = false;
     if (!isMyTurn) { this._stopMove(); this._stopAim(); this._keys.clear(); }
     if (this._mobileEl) {
       this._mobileEl.style.display = (isMyTurn && this._isTouch) ? 'flex' : 'none';
     }
   }
+
+  setRetreat(val) { this._inRetreat = val; }
 
   setWeapon(weapon) {
     this._weapon = weapon;
@@ -93,11 +97,11 @@ export default class InputHandler {
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        if (!this._hasFired) this._startMove('left');
+        if (!this._hasFired || this._inRetreat) this._startMove('left');
         break;
       case 'ArrowRight':
         e.preventDefault();
-        if (!this._hasFired) this._startMove('right');
+        if (!this._hasFired || this._inRetreat) this._startMove('right');
         break;
       case 'ArrowUp':
       case 'ArrowDown':
@@ -106,7 +110,7 @@ export default class InputHandler {
         break;
       case ' ':
         e.preventDefault();
-        if (!this._hasFired) this._net.send({ type: 'jump' });
+        if (!this._hasFired || this._inRetreat) this._net.send({ type: 'jump' });
         break;
       case 'Enter':
         e.preventDefault();
@@ -139,7 +143,7 @@ export default class InputHandler {
     this._net.send({ type: 'move', direction: dir });
     if (!this._moveInterval) {
       this._moveInterval = setInterval(() => {
-        if (this._moveDir && this._myTurn && !this._hasFired) {
+        if (this._moveDir && this._myTurn && (!this._hasFired || this._inRetreat)) {
           this._net.send({ type: 'move', direction: this._moveDir });
         }
       }, 80);
@@ -263,7 +267,7 @@ export default class InputHandler {
 
     this._holdBtn('mc-left',  () => this._startMove('left'),  () => this._stopMove());
     this._holdBtn('mc-right', () => this._startMove('right'), () => this._stopMove());
-    this._tapBtn ('mc-jump',  () => { if (!this._hasFired) this._net.send({ type: 'jump' }); });
+    this._tapBtn ('mc-jump',  () => { if (!this._hasFired || this._inRetreat) this._net.send({ type: 'jump' }); });
     this._tapBtn ('mc-fire',  () => this._fire());
     this._tapBtn ('mc-end',   () => this._net.send({ type: 'end_turn' }));
     // ↑ aims up (or moves airstrike left); ↓ aims down (or moves airstrike right)
@@ -274,7 +278,7 @@ export default class InputHandler {
   _holdBtn(id, onStart, onEnd) {
     const btn = document.getElementById(id);
     if (!btn) return;
-    btn.addEventListener('touchstart',  (e) => { e.preventDefault(); if (this._myTurn && !this._hasFired) onStart(); }, { passive: false });
+    btn.addEventListener('touchstart',  (e) => { e.preventDefault(); if (this._myTurn && (!this._hasFired || this._inRetreat)) onStart(); }, { passive: false });
     btn.addEventListener('touchend',    (e) => { e.preventDefault(); onEnd(); }, { passive: false });
     btn.addEventListener('touchcancel', (e) => { e.preventDefault(); onEnd(); }, { passive: false });
   }

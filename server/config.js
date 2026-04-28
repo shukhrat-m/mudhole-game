@@ -15,6 +15,9 @@ module.exports = {
   FALL_DAMAGE_THRESHOLD: 150,
   FALL_DAMAGE_MULTIPLIER: 0.3,
 
+  // Wind
+  WIND_MAX: 5,   // max wind strength (negative = left, positive = right)
+
   // Terrain
   TERRAIN_WIDTH: 3840,
   TERRAIN_HEIGHT: 800,
@@ -25,11 +28,11 @@ module.exports = {
 
   // Weapon ammo per player per game
   WEAPON_AMMO: {
-    grenade:      5,
-    bazooka:      4,
-    machinegun:   3,
-    airstrike:    2,
-    holy_grenade: 2,
+    grenade:      6,
+    bazooka:      5,
+    machinegun:   4,
+    airstrike:    1,
+    holy_grenade: 1,
     mine:         3,
   },
 };

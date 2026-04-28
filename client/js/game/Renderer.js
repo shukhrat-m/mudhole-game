@@ -306,32 +306,54 @@ export default class Renderer {
   }
 
   _drawCloud(ctx, x, y, w, h, alpha) {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#fff';
+    // Blob layout: [relX, relY, relRadius, brightness]
     const blobs = [
-      [x + w*0.2, y + h*0.5, w*0.25],
-      [x + w*0.5, y + h*0.3, w*0.32],
-      [x + w*0.78,y + h*0.5, w*0.22],
-      [x + w*0.5, y + h*0.6, w*0.28],
+      [0.12, 0.70, 0.20, 0.80],
+      [0.28, 0.50, 0.26, 0.88],
+      [0.48, 0.30, 0.34, 1.00],
+      [0.67, 0.44, 0.27, 0.90],
+      [0.84, 0.62, 0.19, 0.82],
+      [0.50, 0.68, 0.28, 0.75],
+      [0.34, 0.62, 0.20, 0.78],
+      [0.66, 0.58, 0.22, 0.80],
     ];
-    blobs.forEach(([bx, by, br]) => {
-      ctx.beginPath();
-      ctx.arc(bx, by, br, 0, Math.PI*2);
-      ctx.fill();
+
+    ctx.save();
+    blobs.forEach(([rx, ry, rr, bright]) => {
+      const bx = x + w * rx;
+      const by = y + h * ry;
+      const br = w * rr;
+
+      // Shadow layer — offset down for depth
+      const sg = ctx.createRadialGradient(bx, by + br * 0.25, 0, bx, by + br * 0.1, br);
+      sg.addColorStop(0,   `rgba(160,175,200,${alpha * 0.45 * bright})`);
+      sg.addColorStop(0.5, `rgba(140,160,190,${alpha * 0.22 * bright})`);
+      sg.addColorStop(1,   'rgba(120,145,180,0)');
+      ctx.fillStyle = sg;
+      ctx.beginPath(); ctx.arc(bx, by + br * 0.12, br, 0, Math.PI * 2); ctx.fill();
+
+      // Main body — highlight top-left
+      const mg = ctx.createRadialGradient(bx - br * 0.3, by - br * 0.3, 0, bx, by, br);
+      mg.addColorStop(0,    `rgba(252,254,255,${alpha * 0.95 * bright})`);
+      mg.addColorStop(0.40, `rgba(228,238,250,${alpha * 0.75 * bright})`);
+      mg.addColorStop(0.72, `rgba(200,215,235,${alpha * 0.40 * bright})`);
+      mg.addColorStop(1,    'rgba(180,200,225,0)');
+      ctx.fillStyle = mg;
+      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
     });
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   _genClouds() {
     const clouds = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 9; i++) {
       clouds.push({
-        x: Math.random() * 2000,
-        y: 30 + Math.random() * 150,
-        w: 80 + Math.random() * 120,
-        h: 40 + Math.random() * 40,
-        speed: 0.1 + Math.random() * 0.2,
-        alpha: 0.15 + Math.random() * 0.25,
+        x:     Math.random() * 3200,
+        y:     20 + Math.random() * 160,
+        w:     90 + Math.random() * 160,
+        h:     44 + Math.random() * 50,
+        speed: 0.08 + Math.random() * 0.18,
+        alpha: 0.18 + Math.random() * 0.28,
       });
     }
     return clouds;

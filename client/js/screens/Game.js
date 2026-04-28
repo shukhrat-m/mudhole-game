@@ -28,8 +28,13 @@ export default class GameScreen {
     this._input       = null;
     this._particles   = null;
     this._sound       = null;
-    this._ui          = null;
-    this._minimap     = null;
+    this._ui             = null;
+    this._minimap        = null;
+    this._toastContainer = null;
+    this._isRetreating   = false;
+    this._wind           = 0;
+    this._nextId         = null;
+    this._floatTexts     = [];
 
     this._projList = [];
   }
@@ -38,6 +43,10 @@ export default class GameScreen {
     ui.innerHTML = '';
     const hudEl = document.getElementById('hud');
     hudEl.style.display = 'block';
+
+    this._toastContainer = document.createElement('div');
+    this._toastContainer.id = 'game-toasts';
+    document.body.appendChild(this._toastContainer);
 
     this._renderer   = new Renderer();
     this._wormRender = new WormRenderer();
@@ -92,17 +101,20 @@ export default class GameScreen {
       if (this._worms[this._myId]) this._worms[this._myId].weapon = e.detail;
     });
 
-    net.on('state',          msg => this._onState(msg));
-    net.on('turn_start',     msg => this._onTurnStart(msg));
-    net.on('turn_end',       ()  => this._onTurnEnd());
-    net.on('timer',          msg => { this._timeLeft = msg.timeLeft; });
-    net.on('projectile',     msg => this._onProjectile(msg));
-    net.on('explosion',      msg => this._onExplosion(msg));
-    net.on('terrain_update', msg => this._onTerrainUpdate(msg));
-    net.on('worm_died',      msg => this._onWormDied(msg));
-    net.on('mine_placed',    msg => this._onMinePlaced(msg));
-    net.on('game_over',      msg => { setTimeout(() => showScreen('gameOver', msg), 1000); });
-    net.on('disconnect',     ()  => showScreen('mainMenu'));
+    net.on('state',             msg => this._onState(msg));
+    net.on('turn_start',        msg => this._onTurnStart(msg));
+    net.on('turn_end',          ()  => this._onTurnEnd());
+    net.on('timer',             msg => { this._timeLeft = msg.timeLeft; });
+    net.on('projectile',        msg => this._onProjectile(msg));
+    net.on('projectile_bounce', msg => this._onProjectileBounce(msg));
+    net.on('explosion',         msg => this._onExplosion(msg));
+    net.on('terrain_update',    msg => this._onTerrainUpdate(msg));
+    net.on('worm_died',         msg => this._onWormDied(msg));
+    net.on('mine_placed',       msg => this._onMinePlaced(msg));
+    net.on('retreat',           msg => this._onRetreat(msg));
+    net.on('player_left',       msg => this._onPlayerLeft(msg));
+    net.on('game_over',         msg => { setTimeout(() => showScreen('gameOver', msg), 1000); });
+    net.on('disconnect',        ()  => showScreen('mainMenu'));
 
     this._loop(0);
   }
@@ -119,8 +131,10 @@ export default class GameScreen {
 
     window.removeEventListener('weapon_changed', this._onWeaponChanged);
 
-    ['state','turn_start','turn_end','timer','projectile','explosion',
-     'terrain_update','worm_died','mine_placed','game_over','disconnect']
+    if (this._toastContainer) { this._toastContainer.remove(); this._toastContainer = null; }
+
+    ['state','turn_start','turn_end','timer','projectile','projectile_bounce',
+     'explosion','terrain_update','worm_died','mine_placed','retreat','player_left','game_over','disconnect']
       .forEach(t => net.off(t));
 
     ['canvas-bg','canvas-terrain','canvas-game','canvas-effects','canvas-ui-game'].forEach(id => {
@@ -144,22 +158,38 @@ export default class GameScreen {
     this._wormRender.tick();
     this._particles.update();
 
-    // Client-side projectile simulation for smooth rendering + trail building
+    this._floatTexts.forEach(t => { t.y -= 1.5 * dt; t.alpha -= 0.012 * dt; });
+    this._floatTexts = this._floatTexts.filter(t => t.alpha > 0);
+
+    // Normalize physics step to server tick rate (50 Hz = 20ms/tick).
+    const PHYS_STEP = dt * (16.67 / 20); // ≈ 0.8335 at 60fps
+
     this._projList.forEach(p => {
+      if (p.type === 'mine') return;
+      const maxTrail = p.type === 'bullet' ? 8 : 22;
       p.trail.push({ x: p.x, y: p.y });
-      if (p.trail.length > 14) p.trail.shift();
-      p.vy += p.gravity * dt;
-      p.x  += p.vx * dt;
-      p.y  += p.vy * dt;
+      if (p.trail.length > maxTrail) p.trail.shift();
+      // Tumble grenades instead of pointing toward velocity
+      if (p.type === 'grenade' || p.type === 'holy_grenade') {
+        p._spin = ((p._spin || 0) + 4 * PHYS_STEP);
+      }
+      if (p.type !== 'bullet') p.vx += this._wind * 0.01 * PHYS_STEP;
+      p.vy += p.gravity * PHYS_STEP;
+      p.x  += p.vx * PHYS_STEP;
+      p.y  += p.vy * PHYS_STEP;
     });
 
     Object.values(this._worms).forEach(w => {
       if (w.hurtFlash > 0) w.hurtFlash--;
     });
 
-    // Camera
+    // Camera: follow flying projectile so all players see it in flight.
+    // Fall back to airstrike cursor or active worm when no projectile is airborne.
+    const flyingProj = this._projList.find(p => p.type !== 'mine');
     const targetWorm = this._worms[this._currentId || this._myId];
-    if (targetWorm) {
+    if (flyingProj) {
+      this._renderer.followTarget(flyingProj.x, flyingProj.y);
+    } else if (targetWorm) {
       if (this._myTurn && this._input && this._input.getWeapon() === 'airstrike') {
         this._renderer.followTarget(this._input.getAirstrikeX(), targetWorm.y);
       } else {
@@ -203,11 +233,24 @@ export default class GameScreen {
 
     gCtx.restore();
 
-    // Particles
+    // Particles + floating damage numbers
     r.clearFx();
     fxCtx.save();
     r.applyCamera(fxCtx);
     this._particles.render(fxCtx);
+    this._floatTexts.forEach(t => {
+      const a = Math.max(0, t.alpha);
+      fxCtx.globalAlpha = a;
+      fxCtx.font = `bold ${t.size}px "Segoe UI"`;
+      fxCtx.textAlign = 'center';
+      fxCtx.lineWidth = 4;
+      fxCtx.strokeStyle = 'rgba(0,0,0,0.85)';
+      fxCtx.strokeText(t.text, t.x, t.y);
+      fxCtx.fillStyle = t.color;
+      fxCtx.fillText(t.text, t.x, t.y);
+    });
+    fxCtx.globalAlpha = 1;
+    fxCtx.textAlign = 'left';
     fxCtx.restore();
 
     // HUD update
@@ -217,9 +260,12 @@ export default class GameScreen {
       this._ui.update({
         worms: wormsArr,
         currentPlayerId: this._currentId,
+        nextPlayerId: this._nextId,
         myId: this._myId,
         timeLeft: this._timeLeft,
         myTurn: this._myTurn,
+        retreating: this._isRetreating,
+        wind: this._wind,
         scores: this._scores,
         myAmmo,
       });
@@ -374,19 +420,37 @@ export default class GameScreen {
   // ─── Projectile render ───────────────────────────────────────────────────
 
   _drawProjectile(ctx, p) {
-    // Trail
+    if (p.type === 'mine') { this._drawMine(ctx, p); return; }
+
+    // ── Trail ────────────────────────────────────────────────────────────
     if (p.trail && p.trail.length > 1) {
       ctx.save();
-      const trailColor = this._trailColor(p.type);
-      for (let i = 1; i < p.trail.length; i++) {
-        const alpha = (i / p.trail.length) * 0.55;
-        const width = (i / p.trail.length) * (p.type === 'bullet' ? 2 : 4);
-        ctx.globalAlpha = alpha;
-        ctx.strokeStyle = trailColor;
-        ctx.lineWidth   = width;
-        ctx.lineCap     = 'round';
-        ctx.shadowColor = trailColor;
-        ctx.shadowBlur  = 6;
+      const col = this._trailColor(p.type);
+      const isBullet = p.type === 'bullet';
+      const len = p.trail.length;
+
+      // Outer soft glow pass
+      for (let i = 1; i < len; i++) {
+        const t = i / len;
+        ctx.globalAlpha  = t * (isBullet ? 0.35 : 0.28);
+        ctx.strokeStyle  = col;
+        ctx.lineWidth    = t * (isBullet ? 5 : 12);
+        ctx.lineCap      = 'round';
+        ctx.shadowColor  = col;
+        ctx.shadowBlur   = 10;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[i-1].x, p.trail[i-1].y);
+        ctx.lineTo(p.trail[i].x,   p.trail[i].y);
+        ctx.stroke();
+      }
+      // Inner bright core pass
+      for (let i = 1; i < len; i++) {
+        const t = i / len;
+        ctx.globalAlpha  = t * (isBullet ? 0.9 : 0.75);
+        ctx.strokeStyle  = col;
+        ctx.lineWidth    = t * (isBullet ? 2 : 4);
+        ctx.lineCap      = 'round';
+        ctx.shadowBlur   = 0;
         ctx.beginPath();
         ctx.moveTo(p.trail[i-1].x, p.trail[i-1].y);
         ctx.lineTo(p.trail[i].x,   p.trail[i].y);
@@ -397,105 +461,122 @@ export default class GameScreen {
       ctx.restore();
     }
 
+    // ── Body ─────────────────────────────────────────────────────────────
     ctx.save();
     ctx.translate(p.x, p.y);
-    const angle = Math.atan2(p.vy, p.vx);
-    ctx.rotate(angle);
-
-    ctx.shadowBlur = 8;
+    const flightAngle = Math.atan2(p.vy, p.vx);
 
     switch (p.type) {
+
       case 'grenade': {
-        ctx.shadowColor = '#aaa';
-        ctx.fillStyle = '#666';
-        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#999';
-        ctx.fillRect(-1.5, -10, 3, 8);
+        // Tumble freely — looks like a real thrown grenade
+        ctx.rotate(p._spin || 0);
+        // Outer glow
+        ctx.shadowColor = '#88ccff'; ctx.shadowBlur = 16;
+        // Body
+        const gBody = ctx.createRadialGradient(-2, -2, 0, 0, 0, 9);
+        gBody.addColorStop(0, '#a0b880');
+        gBody.addColorStop(0.5, '#6a8050');
+        gBody.addColorStop(1, '#384520');
+        ctx.fillStyle = gBody;
+        ctx.strokeStyle = '#202c12'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // Segmentation lines
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(9, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, 9); ctx.stroke();
+        // Fuse
+        ctx.strokeStyle = '#888'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -14); ctx.stroke();
+        // Fuse spark
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 10;
+        ctx.fillStyle = `rgba(255,${120 + Math.random()*100|0},0,${0.8 + Math.random()*0.2})`;
+        ctx.beginPath(); ctx.arc(0, -14, 2.5, 0, Math.PI * 2); ctx.fill();
         break;
       }
+
       case 'holy_grenade': {
-        ctx.shadowColor = '#ffd700';
-        ctx.fillStyle = '#ffd700';
-        ctx.strokeStyle = 'rgba(180,130,0,0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-        // Glow ring
-        ctx.globalAlpha = 0.35;
-        ctx.shadowBlur = 18;
-        ctx.strokeStyle = '#fff6a0';
-        ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.arc(0, 0, 13, 0, Math.PI * 2); ctx.stroke();
+        ctx.rotate(p._spin || 0);
+        // Outer aura
+        ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 28;
+        const pulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.006);
+        ctx.globalAlpha = 0.25 * pulse;
+        ctx.fillStyle = '#fff8a0';
+        ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
         ctx.globalAlpha = 1;
+        // Body
+        const hBody = ctx.createRadialGradient(-3, -3, 0, 0, 0, 11);
+        hBody.addColorStop(0, '#fff8c0');
+        hBody.addColorStop(0.5, '#ffd700');
+        hBody.addColorStop(1, '#b8860b');
+        ctx.fillStyle = hBody;
+        ctx.strokeStyle = '#8b6000'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // Cross
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+        ctx.shadowBlur = 6; ctx.shadowColor = '#fff';
+        ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke();
         break;
       }
+
       case 'bazooka': {
-        ctx.shadowColor = '#ff6600';
-        // Rocket body
-        ctx.fillStyle = '#8aaa6a';
-        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(-14, -4, 28, 8, 3);
-        ctx.fill(); ctx.stroke();
-        // Tip
-        ctx.fillStyle = '#cc5500';
-        ctx.beginPath();
-        ctx.moveTo(14, 0); ctx.lineTo(22, -3); ctx.lineTo(22, 3); ctx.closePath();
-        ctx.fill();
+        ctx.rotate(flightAngle);
+        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 18;
+        // Body
+        ctx.fillStyle = '#8aaa6a'; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.roundRect(-16, -5, 32, 10, 4); ctx.fill(); ctx.stroke();
+        // Tip cone
+        ctx.fillStyle = '#cc4400';
+        ctx.beginPath(); ctx.moveTo(16,-5); ctx.lineTo(26,0); ctx.lineTo(16,5); ctx.closePath(); ctx.fill();
+        // Stripe
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.fillRect(-4, -5, 4, 10);
         // Exhaust flame
-        const flicker = 0.7 + Math.random() * 0.3;
-        ctx.fillStyle = `rgba(255,140,0,${flicker})`;
-        ctx.beginPath();
-        ctx.moveTo(-14, -4); ctx.lineTo(-14 - 10 * flicker, 0); ctx.lineTo(-14, 4);
-        ctx.closePath(); ctx.fill();
-        ctx.fillStyle = `rgba(255,240,80,${flicker * 0.8})`;
-        ctx.beginPath();
-        ctx.moveTo(-14, -2); ctx.lineTo(-14 - 6 * flicker, 0); ctx.lineTo(-14, 2);
-        ctx.closePath(); ctx.fill();
+        const fl = 0.65 + Math.random() * 0.35;
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 14;
+        ctx.fillStyle = `rgba(255,130,0,${fl})`;
+        ctx.beginPath(); ctx.moveTo(-16,-5); ctx.lineTo(-16-13*fl,0); ctx.lineTo(-16,5); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = `rgba(255,240,80,${fl*0.85})`;
+        ctx.beginPath(); ctx.moveTo(-16,-3); ctx.lineTo(-16-8*fl,0); ctx.lineTo(-16,3); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,200,${fl*0.5})`;
+        ctx.beginPath(); ctx.moveTo(-16,-1.5); ctx.lineTo(-16-4*fl,0); ctx.lineTo(-16,1.5); ctx.closePath(); ctx.fill();
         break;
       }
+
       case 'bullet': {
-        ctx.shadowColor = '#ffdd00';
-        ctx.fillStyle = '#ffcc00';
-        ctx.strokeStyle = '#cc8800';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.roundRect(-5, -2, 10, 4, 2);
-        ctx.fill(); ctx.stroke();
+        ctx.rotate(flightAngle);
+        ctx.shadowColor = '#ffee44'; ctx.shadowBlur = 12;
+        const bGrad = ctx.createLinearGradient(-6, -2, 6, 2);
+        bGrad.addColorStop(0, '#ffee88');
+        bGrad.addColorStop(0.5, '#ffcc00');
+        bGrad.addColorStop(1, '#cc8800');
+        ctx.fillStyle = bGrad;
+        ctx.strokeStyle = '#884400'; ctx.lineWidth = 0.6;
+        ctx.beginPath(); ctx.roundRect(-6, -2.5, 12, 5, 2.5); ctx.fill(); ctx.stroke();
         break;
       }
+
       case 'airstrike_bomb': {
-        ctx.shadowColor = '#ff6600';
-        ctx.fillStyle = '#444';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.ellipse(0, 0, 5, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.rotate(Math.PI / 2); // falls nose-down
+        ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 16;
+        // Body
+        ctx.fillStyle = '#3a3a3a'; ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.ellipse(0, 0, 7, 16, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // Nose cone — red
+        ctx.fillStyle = '#cc2200';
+        ctx.beginPath(); ctx.ellipse(0, -13, 4, 6, 0, 0, Math.PI * 2); ctx.fill();
+        // Stripe
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(-7, -4, 14, 3);
         // Fins
-        ctx.fillStyle = '#666';
-        ctx.fillRect(-7, 6, 14, 4);
-        // Nose shine
-        ctx.fillStyle = '#888';
-        ctx.beginPath(); ctx.ellipse(-1, -7, 2, 4, 0, 0, Math.PI * 2); ctx.fill();
-        break;
-      }
-      case 'mine': {
-        ctx.shadowColor = '#ff4444';
         ctx.fillStyle = '#555';
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(-10, -7, 20, 14, 3);
-        ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#ee3333';
-        ctx.beginPath(); ctx.arc(0, -2, 4, 0, Math.PI * 2); ctx.fill();
-        // LED blink
-        const blink = Math.floor(Date.now() / 400) % 2 === 0;
-        if (blink) {
-          ctx.fillStyle = '#ff8888';
-          ctx.beginPath(); ctx.arc(0, -2, 2, 0, Math.PI * 2); ctx.fill();
-        }
+        ctx.beginPath(); ctx.moveTo(-7, 10); ctx.lineTo(-14, 18); ctx.lineTo(-7, 16); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo( 7, 10); ctx.lineTo( 14, 18); ctx.lineTo( 7, 16); ctx.closePath(); ctx.fill();
+        // Whistle glow at nose
+        ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 20;
+        ctx.fillStyle = `rgba(255,100,0,${0.4 + Math.random()*0.3})`;
+        ctx.beginPath(); ctx.arc(0, -15, 4, 0, Math.PI * 2); ctx.fill();
         break;
       }
     }
@@ -504,14 +585,41 @@ export default class GameScreen {
     ctx.restore();
   }
 
+  _drawMine(ctx, p) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    const blink = Math.floor(Date.now() / 400) % 2 === 0;
+    ctx.shadowColor = blink ? '#ff4444' : '#882222';
+    ctx.shadowBlur  = blink ? 16 : 6;
+    // Body
+    ctx.fillStyle = '#4a4a4a'; ctx.strokeStyle = '#222'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.roundRect(-12, -8, 24, 16, 4); ctx.fill(); ctx.stroke();
+    // Warning stripe
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(-12, -2, 24, 4);
+    ctx.fillStyle = '#333';
+    for (let i = -10; i < 12; i += 6) {
+      ctx.fillRect(i, -2, 3, 4);
+    }
+    // LED
+    ctx.fillStyle = blink ? '#ff4444' : '#660000';
+    ctx.beginPath(); ctx.arc(0, -3, 3.5, 0, Math.PI * 2); ctx.fill();
+    if (blink) {
+      ctx.fillStyle = '#ffaaaa';
+      ctx.beginPath(); ctx.arc(0, -3, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
   _trailColor(type) {
     switch (type) {
-      case 'bullet':        return '#ffdd40';
-      case 'bazooka':       return '#ff8040';
-      case 'holy_grenade':  return '#ffd700';
-      case 'airstrike_bomb':return '#ff6020';
-      case 'grenade':       return '#88ccff';
-      default:              return '#aaaaaa';
+      case 'bullet':         return '#ffee44';
+      case 'bazooka':        return '#ff8830';
+      case 'holy_grenade':   return '#ffe040';
+      case 'airstrike_bomb': return '#ff5010';
+      case 'grenade':        return '#90ddff';
+      default:               return '#aabbcc';
     }
   }
 
@@ -533,12 +641,15 @@ export default class GameScreen {
   }
 
   _onTurnStart(msg) {
-    this._currentId = msg.playerId;
-    this._timeLeft  = msg.timeLeft;
-    this._myTurn    = msg.playerId === this._myId;
+    this._currentId    = msg.playerId;
+    this._timeLeft     = msg.timeLeft;
+    this._myTurn       = msg.playerId === this._myId;
+    this._isRetreating = false;
+    this._wind         = msg.wind ?? 0;
+    this._nextId       = msg.nextPlayerId || null;
     if (msg.scores) this._scores = msg.scores;
     if (this._input) this._input.setTurn(this._myTurn);
-    this._projList = [];
+    this._projList = this._projList.filter(p => p.type === 'mine');
 
     if (this._myTurn && this._worms[this._myId]) {
       this._worms[this._myId].weapon = 'grenade';
@@ -551,13 +662,22 @@ export default class GameScreen {
   }
 
   _onTurnEnd() {
-    this._myTurn = false;
+    this._myTurn       = false;
+    this._isRetreating = false;
     if (this._input) this._input.setTurn(false);
   }
 
   _onProjectile(msg) {
     this._projList.push({ ...msg, gravity: msg.type === 'bullet' ? 0.1 : 0.4, trail: [] });
     this._sound.playShot(msg.weapon || msg.type, msg.x);
+  }
+
+  _onProjectileBounce(msg) {
+    const p = this._projList.find(p => p.id === msg.id);
+    if (p) {
+      p.x  = msg.x;  p.y  = msg.y;
+      p.vx = msg.vx; p.vy = msg.vy;
+    }
   }
 
   _onExplosion(msg) {
@@ -570,9 +690,12 @@ export default class GameScreen {
     );
 
     (msg.damages || []).forEach(d => {
-      if (this._worms[d.id]) {
-        this._worms[d.id].hp = d.hp;
-        this._worms[d.id].hurtFlash = 15;
+      const w = this._worms[d.id];
+      if (w) {
+        w.hp = d.hp;
+        w.hurtFlash = 15;
+        const size = d.dmg >= 26 ? 26 : d.dmg >= 11 ? 20 : 16;
+        this._floatTexts.push({ x: w.x, y: w.y - 30, text: `-${d.dmg}`, alpha: 1.0, size, color: '#ffdd44' });
       }
     });
   }
@@ -595,7 +718,33 @@ export default class GameScreen {
     if (msg.id === this._myId) this._ui.showDead();
   }
 
+  _onRetreat(msg) {
+    this._timeLeft     = msg.timeLeft;
+    this._isRetreating = true;
+    if (this._input && this._myTurn) this._input.setRetreat(true);
+  }
+
   _onMinePlaced(msg) {
     this._projList.push({ ...msg, type: 'mine', vx: 0, vy: 0, gravity: 0, trail: [] });
+  }
+
+  _onPlayerLeft(msg) {
+    const color = msg.team === 'A' ? '#4a9eff' : '#ff4a4a';
+    this._showToast(`${msg.name} disconnected`, color);
+    const w = this._worms[msg.id];
+    if (w) { w.alive = false; w.hp = 0; }
+  }
+
+  _showToast(text, color = '#fff') {
+    if (!this._toastContainer) return;
+    const el = document.createElement('div');
+    el.className = 'game-toast';
+    el.style.color = color;
+    el.textContent = text;
+    this._toastContainer.appendChild(el);
+    setTimeout(() => {
+      el.classList.add('game-toast-fade');
+      setTimeout(() => el.remove(), 500);
+    }, 2500);
   }
 }

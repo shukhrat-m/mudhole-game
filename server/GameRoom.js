@@ -6,6 +6,8 @@ const Weapons = require('./Weapons');
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 const TEAM_COLORS = { A: '#4a9eff', B: '#ff4a4a' };
+const VALID_WEAPONS = new Set(['grenade', 'bazooka', 'machinegun', 'holy_grenade']);
+const VALID_DIRS    = new Set(['left', 'right']);
 
 class GameRoom {
   constructor(id, name) {
@@ -22,6 +24,7 @@ class GameRoom {
     this.timeLeft = cfg.TURN_TIME;
     this.projectiles = [];
     this.scores = { A: 0, B: 0 };
+    this.wind = 0;
   }
 
   // ─── Connect / Disconnect ────────────────────────────────────────────────
@@ -92,9 +95,13 @@ class GameRoom {
     if (!id || !this.players.has(id)) return;
 
     const player = this.players.get(id);
+
+    // Must check BEFORE removing from turn queue
+    const wasCurrentPlayer = this.state === 'playing' && id === this._currentPlayerId();
+
     this.players.delete(id);
 
-    this._broadcast({ type: 'player_left', id });
+    this._broadcast({ type: 'player_left', id, name: player.name, team: player.team });
 
     // If host left, assign a new one
     if (player.isHost) {
@@ -109,7 +116,10 @@ class GameRoom {
     if (this.state === 'playing') {
       if (player.worm) player.worm.alive = false;
       this._rebuildTurnQueue();
-      if (this._currentPlayerId() === id) this._nextTurn();
+      if (wasCurrentPlayer) {
+        clearInterval(this.timer);
+        this._nextTurn();
+      }
       this._checkWinCondition();
     }
   }
@@ -259,9 +269,12 @@ class GameRoom {
 
     this._shotFired = false;
     this.timeLeft = cfg.TURN_TIME;
+    this.wind = Math.round((Math.random() * 2 - 1) * cfg.WIND_MAX);
     const currentId = this._currentPlayerId();
+    const nextIdx = (this.turnIndex + 1) % this.turnQueue.length;
+    const nextPlayerId = this.turnQueue.length > 1 ? this.turnQueue[nextIdx] : null;
 
-    this._broadcast({ type: 'turn_start', playerId: currentId, timeLeft: this.timeLeft, scores: this.scores });
+    this._broadcast({ type: 'turn_start', playerId: currentId, nextPlayerId, timeLeft: this.timeLeft, scores: this.scores, wind: this.wind });
 
     // Turn timer
     clearInterval(this.timer);
@@ -293,6 +306,21 @@ class GameRoom {
     setTimeout(() => this._startTurn(), 1500);
   }
 
+  _startRetreat(seconds) {
+    clearInterval(this.timer);
+    this.timeLeft = seconds;
+    this._broadcast({ type: 'retreat', timeLeft: seconds });
+    this.timer = setInterval(() => {
+      this.timeLeft--;
+      if (this.timeLeft <= 0) {
+        clearInterval(this.timer);
+        this._nextTurn();
+      } else {
+        this._broadcast({ type: 'timer', timeLeft: this.timeLeft });
+      }
+    }, 1000);
+  }
+
   _onEndTurn(ws) {
     const player = this._getPlayer(ws);
     if (!player || this.state !== 'playing') return;
@@ -315,10 +343,13 @@ class GameRoom {
     // Projectiles
     const toRemove = [];
     this.projectiles.forEach((proj, i) => {
-      const result = Physics.stepProjectile(proj, this.terrain, this._getAliveWorms());
+      const result = Physics.stepProjectile(proj, this.terrain, this._getAliveWorms(), this.wind);
       if (result.exploded) {
         this._handleExplosion(result);
         toRemove.push(i);
+      } else if (result.bounced) {
+        this._broadcast({ type: 'projectile_bounce', id: result.id, x: result.x, y: result.y, vx: result.vx, vy: result.vy });
+        changed = true;
       } else if (result.moved) {
         changed = true;
       }
@@ -335,6 +366,7 @@ class GameRoom {
   _onMove(ws, msg) {
     const player = this._getPlayer(ws);
     if (!player || !this._isCurrentPlayer(player)) return;
+    if (!VALID_DIRS.has(msg.direction)) return;
     Physics.moveWorm(player.worm, msg.direction, this.terrain);
     this._broadcast({ type: 'state', worms: this._serializeWorms() });
   }
@@ -351,18 +383,24 @@ class GameRoom {
     if (!player || !this._isCurrentPlayer(player)) return;
     if (this._shotFired) return;
 
-    const weapon = msg.weapon || player.worm.weapon;
+    // Whitelist: airstrike and mine have dedicated handlers
+    const weapon = VALID_WEAPONS.has(msg.weapon) ? msg.weapon : player.worm.weapon;
+    if (!VALID_WEAPONS.has(weapon)) return;
 
-    // Check ammo
-    if ((player.worm.ammo[weapon] ?? 1) <= 0) return;
+    // Ammo check (0 default closes the ?? 1 loophole)
+    if ((player.worm.ammo[weapon] ?? 0) <= 0) return;
+
+    // Sanitise numeric inputs
+    const angle = (typeof msg.angle === 'number' && isFinite(msg.angle)) ? msg.angle : 0;
+    const power = (typeof msg.power === 'number' && isFinite(msg.power))
+      ? Math.max(0.1, Math.min(1, msg.power)) : 0.85;
+
     this._shotFired = true;
-    if (player.worm.ammo[weapon] !== undefined) player.worm.ammo[weapon]--;
+    player.worm.ammo[weapon]--;
     player.worm.weapon = weapon;
 
-    clearInterval(this.timer);
-
     if (weapon === 'machinegun') {
-      const bullets = Weapons.createBurst(player.worm, msg.angle);
+      const bullets = Weapons.createBurst(player.worm, angle);
       bullets.forEach(b => {
         setTimeout(() => {
           if (this.state !== 'playing') return;
@@ -370,14 +408,14 @@ class GameRoom {
           this._broadcast({ type: 'projectile', ...b, weapon: 'machinegun' });
         }, b.delay * cfg.TICK_RATE);
       });
-      setTimeout(() => this._nextTurn(), 4000);
+      this._startRetreat(4);
     } else {
-      const proj = Weapons.createProjectile(player.worm, weapon, msg.angle, msg.power);
+      const proj = Weapons.createProjectile(player.worm, weapon, angle, power);
       if (proj) {
         this.projectiles.push(proj);
         this._broadcast({ type: 'projectile', ...proj });
       }
-      setTimeout(() => this._nextTurn(), 3000);
+      this._startRetreat(3);
     }
 
     this._broadcast({ type: 'state', worms: this._serializeWorms() });
@@ -391,7 +429,9 @@ class GameRoom {
     this._shotFired = true;
     if (player.worm.ammo.airstrike !== undefined) player.worm.ammo.airstrike--;
 
-    const projs = Weapons.createAirstrike(msg.x, this.terrain);
+    const rawX  = typeof msg.x === 'number' && isFinite(msg.x) ? msg.x : cfg.TERRAIN_WIDTH / 2;
+    const targetX = Math.max(0, Math.min(cfg.TERRAIN_WIDTH, rawX));
+    const projs = Weapons.createAirstrike(targetX, this.terrain);
     projs.forEach((p, i) => {
       setTimeout(() => {
         if (this.state !== 'playing') return;
@@ -400,8 +440,7 @@ class GameRoom {
       }, i * 400);
     });
 
-    clearInterval(this.timer);
-    setTimeout(() => this._nextTurn(), 5000);
+    this._startRetreat(5);
     this._broadcast({ type: 'state', worms: this._serializeWorms() });
   }
 
@@ -416,10 +455,9 @@ class GameRoom {
     const mine = Weapons.createMine(player.worm);
     this.projectiles.push(mine);
     this._broadcast({ type: 'mine_placed', x: mine.x, y: mine.y, id: mine.id });
-
-    clearInterval(this.timer);
-    setTimeout(() => this._nextTurn(), 500);
     this._broadcast({ type: 'state', worms: this._serializeWorms() });
+
+    this._startRetreat(3);
   }
 
   _onRematch(ws) {
@@ -459,11 +497,7 @@ class GameRoom {
       }
     });
 
-    this.terrain.carveCircle(x, y, radius);
-    const regionData = this.terrain.serializeRegion(x - radius - 5, y - radius - 5, radius * 2 + 10, radius * 2 + 10);
-
     this._broadcast({ type: 'explosion', x, y, radius, damages });
-    this._broadcast({ type: 'terrain_update', ...regionData });
 
     this._checkWinCondition();
   }

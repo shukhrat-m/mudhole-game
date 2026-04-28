@@ -18,17 +18,17 @@ const Weapons = {
 
     switch (weapon) {
       case 'grenade':
-        return { ...base, type: 'grenade', timer: Math.round(3 / TICK_RATE_S), bounces: 3, radius: 60, maxDamage: 50 };
+        return { ...base, type: 'grenade', timer: Math.round(3 / TICK_RATE_S), bounces: 3, radius: 60, maxDamage: 32 };
 
       case 'bazooka':
-        return { ...base, type: 'bazooka', radius: 40, maxDamage: 60 };
+        return { ...base, type: 'bazooka', radius: 40, maxDamage: 38 };
 
       case 'machinegun':
         // Machine gun uses createBurst instead
         return null;
 
       case 'holy_grenade':
-        return { ...base, type: 'holy_grenade', timer: Math.round(5 / TICK_RATE_S), bounces: 2, radius: 120, maxDamage: 100 };
+        return { ...base, type: 'holy_grenade', timer: Math.round(5 / TICK_RATE_S), bounces: 2, radius: 120, maxDamage: 60 };
 
       default:
         return null;
@@ -51,10 +51,10 @@ const Weapons = {
         vx: Math.cos(angle) * spd,
         vy: Math.sin(angle) * spd,
         bounces: 0,
-        gravity: 0.1, // bullets barely drop
-        radius: 8,    // small explosion
-        maxDamage: 12,
-        delay: i * 4, // ticks before firing
+        gravity: 0.1,
+        radius: 8,
+        maxDamage: 8,
+        delay: i * 4,
       });
     }
     return bullets;
@@ -74,8 +74,8 @@ const Weapons = {
       bounces: 0,
       gravity: 0.3,
       radius: 80,
-      maxDamage: 75,
-      delay: i * 15, // ticks
+      maxDamage: 45,
+      delay: i * 15,
     }));
   },
 
@@ -91,7 +91,7 @@ const Weapons = {
       gravity: 0,
       bounces: 0,
       radius: 50,
-      maxDamage: 80,
+      maxDamage: 50,
     };
   },
 

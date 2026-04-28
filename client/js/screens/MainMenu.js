@@ -31,25 +31,30 @@ export default class MainMenu {
             <div class="mm-logo">MUDHOLE</div>
             <div class="mm-logo-glow"></div>
           </div>
-          <div class="mm-tagline">Multiplayer worm warfare &nbsp;·&nbsp; Battle to the last</div>
+          <div class="mm-tagline">Multiplayer · Worm Warfare · Battle to the Last</div>
 
           <div class="mm-btns">
             <button class="mm-btn mm-btn-host" id="btn-create">
               <svg class="mm-btn-icon" viewBox="0 0 20 20" fill="none">
-                <path d="M10 2L12.5 7.5H18L13.5 11L15.5 17L10 13.5L4.5 17L6.5 11L2 7.5H7.5L10 2Z" fill="currentColor"/>
+                <rect x="3" y="3" width="6" height="6" rx="1.5" fill="currentColor"/>
+                <rect x="11" y="3" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.6"/>
+                <rect x="3" y="11" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.6"/>
+                <rect x="11" y="11" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.6"/>
               </svg>
               Host Game
             </button>
             <button class="mm-btn mm-btn-join" id="btn-join">
               <svg class="mm-btn-icon" viewBox="0 0 20 20" fill="none">
-                <circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.8"/>
-                <path d="M3.5 10 Q7 5 10 10 Q13 15 16.5 10" stroke="currentColor" stroke-width="1.4" fill="none"/>
-                <line x1="3" y1="7.5" x2="17" y2="7.5" stroke="currentColor" stroke-width="1.2"/>
-                <line x1="3" y1="12.5" x2="17" y2="12.5" stroke="currentColor" stroke-width="1.2"/>
+                <circle cx="8" cy="7" r="3" stroke="currentColor" stroke-width="1.8"/>
+                <path d="M2 17c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M15 9l2.5 2.5L15 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="17.5" y1="11.5" x2="12" y2="11.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
               </svg>
               Join Game
             </button>
-            <button class="mm-btn mm-btn-settings" id="btn-settings">Settings</button>
+            <button class="mm-btn mm-btn-settings" id="btn-settings">
+              ⚙ Settings
+            </button>
           </div>
 
           <div class="mm-footer">
@@ -103,14 +108,13 @@ export default class MainMenu {
       speed: 0.006 + ((i * 0.317) % 1) * 0.014,
     }));
 
-    // Clouds (very subtle)
-    this._clouds = Array.from({ length: 6 }, (_, i) => ({
-      x: (i / 6) * W * 1.4,
-      y: H * 0.04 + ((i * 0.618) % 1) * H * 0.14,
-      w: 100 + ((i * 0.414) % 1) * 200,
-      h: 35  + ((i * 0.618) % 1) * 35,
-      spd: 0.08 + ((i * 0.272) % 1) * 0.12,
-      alpha: 0.035 + ((i * 0.618) % 1) * 0.05,
+    this._clouds = Array.from({ length: 8 }, (_, i) => ({
+      x:     (i / 8) * W * 1.5,
+      y:     H * 0.03 + ((i * 0.618) % 1) * H * 0.16,
+      w:     110 + ((i * 0.414) % 1) * 220,
+      h:     42  + ((i * 0.618) % 1) * 42,
+      spd:   0.06 + ((i * 0.272) % 1) * 0.10,
+      alpha: 0.055 + ((i * 0.618) % 1) * 0.07,
     }));
 
     // Worm positions — placed on the terrain surface
@@ -393,22 +397,50 @@ export default class MainMenu {
 
   _drawClouds(ctx, W, H) {
     const t = this._t;
+    // Night-sky moonlit clouds: same multi-blob technique, blue-tinted
+    const blobs = [
+      [0.12, 0.70, 0.20, 0.78],
+      [0.28, 0.50, 0.26, 0.86],
+      [0.48, 0.30, 0.34, 1.00],
+      [0.67, 0.44, 0.27, 0.88],
+      [0.84, 0.62, 0.19, 0.80],
+      [0.50, 0.68, 0.28, 0.72],
+      [0.34, 0.62, 0.20, 0.76],
+      [0.66, 0.58, 0.22, 0.78],
+    ];
+
     this._clouds.forEach(c => {
       c.x -= c.spd;
       if (c.x + c.w < 0) c.x = W + 80;
-      ctx.globalAlpha = c.alpha * (0.8 + 0.2 * Math.sin(t * 0.008 + c.x));
-      ctx.fillStyle = '#b4ccf0';
-      const pts = [
-        [c.x + c.w * 0.18, c.y + c.h * 0.55, c.w * 0.25],
-        [c.x + c.w * 0.48, c.y + c.h * 0.28, c.w * 0.33],
-        [c.x + c.w * 0.80, c.y + c.h * 0.52, c.w * 0.22],
-        [c.x + c.w * 0.50, c.y + c.h * 0.66, c.w * 0.30],
-      ];
-      pts.forEach(([bx, by, br]) => {
+
+      const pulse = 0.85 + 0.15 * Math.sin(t * 0.006 + c.x * 0.01);
+      const a = c.alpha * pulse;
+
+      ctx.save();
+      blobs.forEach(([rx, ry, rr, bright]) => {
+        const bx = c.x + c.w * rx;
+        const by = c.y + c.h * ry;
+        const br = c.w * rr;
+
+        // Shadow
+        const sg = ctx.createRadialGradient(bx, by + br * 0.22, 0, bx, by, br);
+        sg.addColorStop(0,   `rgba(90,110,160,${a * 0.5 * bright})`);
+        sg.addColorStop(0.6, `rgba(70, 90,140,${a * 0.2 * bright})`);
+        sg.addColorStop(1,   'rgba(50,70,120,0)');
+        ctx.fillStyle = sg;
+        ctx.beginPath(); ctx.arc(bx, by + br * 0.12, br, 0, Math.PI * 2); ctx.fill();
+
+        // Moonlit highlight
+        const mg = ctx.createRadialGradient(bx - br * 0.28, by - br * 0.28, 0, bx, by, br);
+        mg.addColorStop(0,    `rgba(210,225,255,${a * 0.92 * bright})`);
+        mg.addColorStop(0.38, `rgba(170,195,240,${a * 0.68 * bright})`);
+        mg.addColorStop(0.70, `rgba(130,160,210,${a * 0.32 * bright})`);
+        mg.addColorStop(1,    'rgba(100,130,190,0)');
+        ctx.fillStyle = mg;
         ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
       });
+      ctx.restore();
     });
-    ctx.globalAlpha = 1;
   }
 
   _drawTerrain(ctx, W, H) {

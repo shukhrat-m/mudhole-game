@@ -96,8 +96,11 @@ const Physics = {
 
   // ─── Projectiles ─────────────────────────────────────────────────────────
 
-  stepProjectile(proj, terrain, worms) {
+  stepProjectile(proj, terrain, worms, wind = 0) {
     if (proj.type === 'mine') return this._stepMine(proj, worms);
+
+    // Wind pushes all projectiles except machinegun bullets
+    if (proj.type !== 'bullet') proj.vx += wind * 0.01;
 
     proj.vy += proj.gravity;
     proj.x += proj.vx;
@@ -122,12 +125,36 @@ const Physics = {
       return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
     }
 
+    // Post-bounce countdown: projectile already hit a worm, waiting to explode
+    if (proj.hitTimer !== undefined) {
+      proj.hitTimer--;
+      if (proj.hitTimer <= 0) {
+        return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
+      }
+      return { moved: true };
+    }
+
     // Worm collision
     for (const worm of worms) {
       if (worm.id === proj.ownerId) continue;
       const dist = Math.hypot(worm.x - proj.x, worm.y - proj.y);
-      if (dist < 15) {
-        return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
+      if (dist < 20) {
+        // Bullets and bombs explode instantly on worm hit
+        if (proj.type === 'bullet' || proj.type === 'airstrike_bomb') {
+          return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
+        }
+        // Grenade / bazooka / holy_grenade: bounce off worm, then explode
+        const safeDist = Math.max(dist, 0.1);
+        const nx = (proj.x - worm.x) / safeDist; // normal: worm → proj
+        const ny = (proj.y - worm.y) / safeDist;
+        const dot = proj.vx * nx + proj.vy * ny;  // velocity along normal
+        proj.vx = (proj.vx - 2 * dot * nx) * 0.38;
+        proj.vy = (proj.vy - 2 * dot * ny) * 0.38 - 1.8;
+        // Push out of hitbox
+        proj.x = worm.x + nx * 22;
+        proj.y = worm.y + ny * 22;
+        proj.hitTimer = 6; // explode after ~120ms
+        return { bounced: true, id: proj.id, x: proj.x, y: proj.y, vx: proj.vx, vy: proj.vy };
       }
     }
 
@@ -146,7 +173,7 @@ const Physics = {
     for (const worm of worms) {
       if (worm.id === proj.ownerId) continue;
       const dist = Math.hypot(worm.x - proj.x, worm.y - proj.y);
-      if (dist < 20) {
+      if (dist < 35) {
         return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
       }
     }
