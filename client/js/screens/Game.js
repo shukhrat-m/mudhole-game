@@ -690,9 +690,11 @@ export default class GameScreen {
     this._renderer.triggerShake(msg.radius / 8);
     this._sound.playExplosion(msg.x);
 
-    this._projList = this._projList.filter(p =>
-      Math.hypot(p.x - msg.x, p.y - msg.y) > 20
-    );
+    if (msg.projId) {
+      this._projList = this._projList.filter(p => p.id !== msg.projId);
+    } else {
+      this._projList = this._projList.filter(p => p.type === 'mine');
+    }
 
     (msg.damages || []).forEach(d => {
       const w = this._worms[d.id];

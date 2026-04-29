@@ -345,7 +345,7 @@ class GameRoom {
     this.projectiles.forEach((proj, i) => {
       const result = Physics.stepProjectile(proj, this.terrain, this._getAliveWorms(), this.wind);
       if (result.exploded) {
-        this._handleExplosion(result);
+        this._handleExplosion({ ...result, projId: proj.id });
         toRemove.push(i);
       } else if (result.bounced) {
         this._broadcast({ type: 'projectile_bounce', id: result.id, x: result.x, y: result.y, vx: result.vx, vy: result.vy });
@@ -478,7 +478,7 @@ class GameRoom {
   // ─── Explosion ───────────────────────────────────────────────────────────
 
   _handleExplosion(result) {
-    const { x, y, radius, maxDamage } = result;
+    const { x, y, radius, maxDamage, projId } = result;
     const damages = [];
 
     this._getAliveWorms().forEach(worm => {
@@ -497,7 +497,7 @@ class GameRoom {
       }
     });
 
-    this._broadcast({ type: 'explosion', x, y, radius, damages });
+    this._broadcast({ type: 'explosion', x, y, radius, projId, damages });
 
     this._checkWinCondition();
   }
