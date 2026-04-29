@@ -55,11 +55,11 @@ Mobile: virtual buttons appear automatically on touch devices.
 | Weapon | Max Damage | Blast Radius | Notes |
 |--------|-----------|--------------|-------|
 | Grenade | 32 | 60 px | Bounces up to 3×, fuse 3 s |
-| Bazooka | 38 | 40 px | Arced direct shot |
-| Machine Gun | 8 × 8 bullets | 8 px | Spread fire, doesn't damage terrain |
+| Bazooka | 38 | 40 px | Direct shot, follows arc |
+| Machine Gun | 8 × 8 bullets | 8 px | Spread fire, does not damage terrain |
 | Airstrike | 45 | 80 px | 3 bombs drop at a chosen x-position |
-| Holy Grenade | 60 | 120 px | 2 bounces, enormous 5 s fuse blast |
-| Mine | 50 | 50 px | Placed at feet, triggers on enemy proximity |
+| Holy Grenade | 60 | 120 px | 2 bounces, 5 s fuse, massive blast |
+| Mine | 50 | 50 px | 3 s arming delay (green LED), then triggers on any worm |
 
 Ammo per player per game: Grenade ×6 · Bazooka ×5 · Machine Gun ×4 · Airstrike ×1 · Holy Grenade ×1 · Mine ×3
 
@@ -67,13 +67,14 @@ Ammo per player per game: Grenade ×6 · Bazooka ×5 · Machine Gun ×4 · Airst
 
 ## Game Rules
 
-- Two teams: **Blue (A)** vs **Red (B)**
+- Two teams: **Team Alpha** vs **Team Bravo**
 - Players take turns — 30 seconds each
 - After firing you get a **retreat window** to move before the next turn
 - Wind changes every turn and affects all projectiles except bullets
 - Worms take **fall damage** for large drops
 - Explosions apply **knockback**
-- A worm that falls into the water dies instantly
+- A worm that falls off the map boundary dies instantly
+- Friendly fire is disabled
 - Last team standing wins
 - If one team has 2+ fewer players, they receive a **+20% HP bonus**
 
@@ -85,7 +86,7 @@ Ammo per player per game: Grenade ×6 · Bazooka ×5 · Machine Gun ×4 · Airst
 - **Turn timer** (turns orange → "RETREAT!" after firing)
 - **Wind indicator** with directional bars and strength
 - **Next player** preview
-- **Score** per team
+- **Score** per team (Team Alpha / Team Bravo)
 - **Minimap** (bottom-left corner)
 - **Weapon panel** with ammo counts
 
@@ -99,7 +100,7 @@ All maps are 3840 × 800 pixels.
 |-----|-------------|
 | Grassland | Rolling hills, standard gameplay |
 | Cave | Enclosed underground tunnel system |
-| Island | Central landmass, water on both sides |
+| Island | Central landmass, open edges |
 | Industrial | Flat floor + elevated platforms |
 | Hell | Jagged peaks, lava pit edges |
 | Snowfield | Gentle slopes, open long-range combat |
@@ -120,12 +121,12 @@ mudhole/
 └── client/
     ├── index.html      — Canvas stack, HUD, CSS
     └── js/
-        ├── main.js                 — Screen router, WebSocket wrapper
+        ├── main.js                 — Screen router, canvas resize, WebSocket wrapper
         ├── screens/
         │   ├── MainMenu.js         — Animated demo battle on title screen
         │   ├── Game.js             — Core game loop, network events, rendering
-        │   ├── Lobby.js            — Pre-game room
-        │   ├── GameOver.js         — End screen
+        │   ├── Lobby.js            — Pre-game room (team select, map select)
+        │   ├── GameOver.js         — End screen with stats and confetti
         │   ├── CreateServer.js
         │   ├── JoinServer.js
         │   └── Settings.js
@@ -136,22 +137,22 @@ mudhole/
             ├── UI.js               — HUD panel updates
             └── Minimap.js          — Bottom-left minimap
         └── utils/
-            ├── Particles.js        — Explosion debris, smoke, worm death, confetti
+            ├── Particles.js        — Explosion debris, smoke, projectile trails, confetti
             └── SoundManager.js     — Web Audio sound effects
 ```
 
 ### Rendering pipeline (60 fps client, 50 Hz server)
 ```
-canvas-bg       ← sky gradient, parallax hills, clouds
+canvas-bg       ← night sky gradient, twinkling stars, parallax hills, clouds, vignette
 canvas-terrain  ← destructible terrain (OffscreenCanvas, RLE-patched on explosion)
-canvas-game     ← worms, projectiles + trails, aim indicators
-canvas-effects  ← particles, floating damage numbers
-canvas-ui-game  ← aim line input capture (transparent, pointer-events)
+canvas-game     ← worms, projectiles + glow trails, aim indicators
+canvas-effects  ← particles (explosions, smoke, debris), floating damage numbers
+canvas-ui-game  ← transparent input capture layer (pointer-events only)
 ```
 
 ### Network flow
-- Server broadcasts `state` (worm positions) every 20 ms during active turns
-- Projectile events: `projectile` (on fire), `projectile_bounce`, `explosion`
+- Server broadcasts `state` (worm positions) at 50 Hz during active turns
+- Projectile events: `projectile` (on fire, includes `weaponType`), `projectile_bounce`, `explosion` (includes `projId` for exact client removal)
 - Turn events: `turn_start`, `timer`, `retreat`, `turn_end`
 - Terrain updates: RLE-encoded delta patches sent after each explosion
 
