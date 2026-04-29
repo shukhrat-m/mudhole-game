@@ -183,18 +183,28 @@ export default class GameScreen {
       p.x  += p.vx * PHYS_STEP;
       p.y  += p.vy * PHYS_STEP;
 
-      // Client-side terrain stop: snap back to last valid position and freeze
+      // Client-side terrain collision
       const mask = this._renderer ? this._renderer.mask : null;
       if (mask) {
         const ix = Math.floor(p.x), iy = Math.floor(p.y);
         if (iy >= 0 && iy < H && ix >= 0 && ix < W && mask[iy * W + ix]) {
-          if (p.trail.length > 0) {
-            const last = p.trail[p.trail.length - 1];
-            p.x = last.x; p.y = last.y;
+          if ((p.bounces ?? 0) > 0) {
+            // Grenade / holy_grenade: bounce — mirror both axes and dampen (matches server)
+            p.bounces--;
+            p.vx *= -0.6;
+            p.vy *= -0.6;
+            // Push out of terrain upward (same as server)
+            while (p.y > 0 && mask[Math.floor(p.y) * W + Math.floor(p.x)]) p.y--;
+          } else {
+            // No bounces left: freeze at last valid position and wait for server explosion
+            if (p.trail.length > 0) {
+              const last = p.trail[p.trail.length - 1];
+              p.x = last.x; p.y = last.y;
+            }
+            p.vx = 0; p.vy = 0;
+            p._stopped = true;
+            return;
           }
-          p.vx = 0; p.vy = 0;
-          p._stopped = true;
-          return;
         }
       }
       // Out of world bounds — just stop
