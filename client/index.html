@@ -893,7 +893,7 @@
     }
 
     .stats-table {
-      width: 500px;
+      width: 600px;
       border-collapse: collapse;
       margin-bottom: 32px;
     }
@@ -910,8 +910,12 @@
       font-size: 14px;
       border-bottom: 1px solid rgba(255,255,255,0.05);
     }
-    .stats-table .alive   { color: #4aff88; }
-    .stats-table .dead    { color: rgba(255,255,255,0.3); text-decoration: line-through; }
+    .stats-table .alive      { color: #4aff88; }
+    .stats-table .dead       { color: rgba(255,255,255,0.3); text-decoration: line-through; }
+    .stats-table .stat-dealt { color: #ff9944; font-weight: 700; text-align: right; }
+    .stats-table .stat-taken { color: #ff4466; font-weight: 700; text-align: right; }
+    .stats-table th:nth-child(3),
+    .stats-table th:nth-child(4) { text-align: right; }
 
     .gameover-btns { display: flex; gap: 12px; justify-content: center; }
     .gameover-btns .btn { width: auto; padding: 12px 28px; margin-bottom: 0; }

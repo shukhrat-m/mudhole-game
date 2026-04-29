@@ -168,6 +168,8 @@ class GameRoom {
         : baseHp;
 
       p.alive = true;
+      p.damageDealt = 0;
+      p.damageTaken = 0;
       p.worm = {
         id: p.id,
         name: p.name,
@@ -345,7 +347,7 @@ class GameRoom {
     this.projectiles.forEach((proj, i) => {
       const result = Physics.stepProjectile(proj, this.terrain, this._getAliveWorms(), this.wind);
       if (result.exploded) {
-        this._handleExplosion({ ...result, projId: proj.id });
+        this._handleExplosion({ ...result, projId: proj.id, ownerId: proj.ownerId });
         toRemove.push(i);
       } else if (result.bounced) {
         this._broadcast({ type: 'projectile_bounce', id: result.id, x: result.x, y: result.y, vx: result.vx, vy: result.vy });
@@ -478,8 +480,9 @@ class GameRoom {
   // ─── Explosion ───────────────────────────────────────────────────────────
 
   _handleExplosion(result) {
-    const { x, y, radius, maxDamage, projId } = result;
+    const { x, y, radius, maxDamage, projId, ownerId } = result;
     const damages = [];
+    const shooter = ownerId ? this.players.get(ownerId) : null;
 
     this._getAliveWorms().forEach(worm => {
       const dist = Math.hypot(worm.x - x, worm.y - y);
@@ -492,6 +495,10 @@ class GameRoom {
           worm.vx += Math.cos(angle) * 8;
           worm.vy += Math.sin(angle) * 8 - 4;
           damages.push({ id: worm.id, dmg, hp: worm.hp });
+          // Accumulate per-player stats
+          const target = this.players.get(worm.id);
+          if (target) target.damageTaken += dmg;
+          if (shooter) shooter.damageDealt += dmg;
           if (worm.hp <= 0) this._killWorm(worm.id);
         }
       }
@@ -527,7 +534,14 @@ class GameRoom {
 
       const stats = [];
       this.players.forEach(p => {
-        stats.push({ id: p.id, name: p.name, team: p.team, alive: p.worm && p.worm.alive });
+        stats.push({
+          id:           p.id,
+          name:         p.name,
+          team:         p.team,
+          alive:        p.worm && p.worm.alive,
+          damageDealt:  p.damageDealt || 0,
+          damageTaken:  p.damageTaken || 0,
+        });
       });
 
       this.scores[winner] = (this.scores[winner] || 0) + 3; // win bonus

@@ -14,6 +14,8 @@ export default class GameOver {
     const winColor = this._winner === 'A' ? '#4a9eff' : '#ff4a4a';
     const winLabel = this._winner === 'A' ? 'Team Alpha' : 'Team Bravo';
 
+    const sorted = [...this._stats].sort((a, b) => (b.damageDealt || 0) - (a.damageDealt || 0));
+
     ui.innerHTML = `
       <div id="gameover-screen" class="screen">
         <canvas id="go-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
@@ -27,17 +29,24 @@ export default class GameOver {
               <tr>
                 <th>Player</th>
                 <th>Team</th>
+                <th>Dealt</th>
+                <th>Taken</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              ${this._stats.map(p => `
-                <tr>
+              ${sorted.map(p => {
+                const teamColor = p.team === 'A' ? '#4a9eff' : '#ff4a4a';
+                const teamName  = p.team === 'A' ? 'Team Alpha' : 'Team Bravo';
+                return `
+                <tr style="border-left: 3px solid ${teamColor}">
                   <td>${this._esc(p.name)}</td>
-                  <td style="color:${p.team === 'A' ? '#4a9eff' : '#ff4a4a'}">${p.team === 'A' ? 'Team Alpha' : 'Team Bravo'}</td>
+                  <td style="color:${teamColor}">${teamName}</td>
+                  <td class="stat-dealt">${p.damageDealt || 0}</td>
+                  <td class="stat-taken">${p.damageTaken || 0}</td>
                   <td class="${p.alive ? 'alive' : 'dead'}">${p.alive ? '✓ Alive' : '✗ Dead'}</td>
-                </tr>
-              `).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
 
