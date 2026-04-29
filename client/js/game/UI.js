@@ -77,11 +77,11 @@ export default class UI {
     }
 
     topEl.querySelector('#hud-team-a').innerHTML =
-      `<div class="hud-team-title hud-team-title-a">Team A <span class="hud-score">${(scores || {}).A ?? 0}</span></div>` +
+      `<div class="hud-team-title hud-team-title-a">Team Alpha <span class="hud-score">${(scores || {}).A ?? 0}</span></div>` +
       tA.map(w => this._wormRow(w, w.id === currentPlayerId)).join('');
 
     topEl.querySelector('#hud-team-b').innerHTML =
-      `<div class="hud-team-title hud-team-title-b">Team B <span class="hud-score">${(scores || {}).B ?? 0}</span></div>` +
+      `<div class="hud-team-title hud-team-title-b">Team Bravo <span class="hud-score">${(scores || {}).B ?? 0}</span></div>` +
       tB.map(w => this._wormRow(w, w.id === currentPlayerId)).join('');
 
     const wpEl = this._hud.querySelector('#hud-weapons');

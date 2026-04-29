@@ -12,7 +12,7 @@ export default class GameOver {
 
   init(ui) {
     const winColor = this._winner === 'A' ? '#4a9eff' : '#ff4a4a';
-    const winLabel = `Team ${this._winner}`;
+    const winLabel = this._winner === 'A' ? 'Team Alpha' : 'Team Bravo';
 
     ui.innerHTML = `
       <div id="gameover-screen" class="screen">
@@ -34,7 +34,7 @@ export default class GameOver {
               ${this._stats.map(p => `
                 <tr>
                   <td>${this._esc(p.name)}</td>
-                  <td style="color:${p.team === 'A' ? '#4a9eff' : '#ff4a4a'}">Team ${p.team}</td>
+                  <td style="color:${p.team === 'A' ? '#4a9eff' : '#ff4a4a'}">${p.team === 'A' ? 'Team Alpha' : 'Team Bravo'}</td>
                   <td class="${p.alive ? 'alive' : 'dead'}">${p.alive ? '✓ Alive' : '✗ Dead'}</td>
                 </tr>
               `).join('')}
