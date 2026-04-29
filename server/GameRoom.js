@@ -455,6 +455,8 @@ class GameRoom {
     if (player.worm.ammo.mine !== undefined) player.worm.ammo.mine--;
 
     const mine = Weapons.createMine(player.worm);
+    // Snap mine to terrain surface so it sits on the ground, not floating or embedded
+    mine.y = this.terrain.getHeightAt(mine.x) - 1;
     this.projectiles.push(mine);
     this._broadcast({ type: 'mine_placed', x: mine.x, y: mine.y, id: mine.id, armTimer: mine.armTimer });
     this._broadcast({ type: 'state', worms: this._serializeWorms() });

@@ -122,7 +122,10 @@ const Physics = {
         while (terrain.isBlocked(proj.x, proj.y)) proj.y--;
         return { moved: true };
       }
-      return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
+      // Snap explosion to terrain surface (not inside terrain)
+      let ey = proj.y;
+      while (ey > 0 && terrain.isBlocked(proj.x, ey)) ey--;
+      return { exploded: true, x: proj.x, y: ey, radius: proj.radius, maxDamage: proj.maxDamage };
     }
 
     // Post-bounce countdown: projectile already hit a worm, waiting to explode
@@ -134,25 +137,26 @@ const Physics = {
       return { moved: true };
     }
 
-    // Worm collision
+    // Worm collision — hitbox centered at body center (worm.y - 12), radius 28
     for (const worm of worms) {
       if (worm.id === proj.ownerId) continue;
-      const dist = Math.hypot(worm.x - proj.x, worm.y - proj.y);
-      if (dist < 20) {
+      const dist = Math.hypot(worm.x - proj.x, (worm.y - 12) - proj.y);
+      if (dist < 28) {
         // Bullets and bombs explode instantly on worm hit
         if (proj.type === 'bullet' || proj.type === 'airstrike_bomb') {
           return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };
         }
         // Grenade / bazooka / holy_grenade: bounce off worm, then explode
+        const bodyY = worm.y - 12;
         const safeDist = Math.max(dist, 0.1);
-        const nx = (proj.x - worm.x) / safeDist; // normal: worm → proj
-        const ny = (proj.y - worm.y) / safeDist;
-        const dot = proj.vx * nx + proj.vy * ny;  // velocity along normal
+        const nx = (proj.x - worm.x) / safeDist;
+        const ny = (proj.y - bodyY) / safeDist;
+        const dot = proj.vx * nx + proj.vy * ny;
         proj.vx = (proj.vx - 2 * dot * nx) * 0.38;
         proj.vy = (proj.vy - 2 * dot * ny) * 0.38 - 1.8;
         // Push out of hitbox
-        proj.x = worm.x + nx * 22;
-        proj.y = worm.y + ny * 22;
+        proj.x = worm.x + nx * 30;
+        proj.y = bodyY + ny * 30;
         proj.hitTimer = 6; // explode after ~120ms
         return { bounced: true, id: proj.id, x: proj.x, y: proj.y, vx: proj.vx, vy: proj.vy };
       }

@@ -169,6 +169,9 @@ export default class GameScreen {
         if (p.armTimer > 0) p.armTimer = Math.max(0, p.armTimer - PHYS_STEP * (20 / 16.67));
         return;
       }
+      // Already stopped by client-side terrain/worm check — wait for server explosion event
+      if (p._stopped) return;
+
       const maxTrail = p.type === 'bullet' ? 20 : 60;
       p.trail.push({ x: p.x, y: p.y });
       if (p.trail.length > maxTrail) p.trail.shift();
@@ -179,8 +182,38 @@ export default class GameScreen {
       p.vy += p.gravity * PHYS_STEP;
       p.x  += p.vx * PHYS_STEP;
       p.y  += p.vy * PHYS_STEP;
+
+      // Client-side terrain stop: snap back to last valid position and freeze
+      const mask = this._renderer ? this._renderer.mask : null;
+      if (mask) {
+        const ix = Math.floor(p.x), iy = Math.floor(p.y);
+        if (iy >= 0 && iy < H && ix >= 0 && ix < W && mask[iy * W + ix]) {
+          if (p.trail.length > 0) {
+            const last = p.trail[p.trail.length - 1];
+            p.x = last.x; p.y = last.y;
+          }
+          p.vx = 0; p.vy = 0;
+          p._stopped = true;
+          return;
+        }
+      }
+      // Out of world bounds — just stop
+      if (p.y > H || p.x < 0 || p.x > W) { p._stopped = true; return; }
+
+      // Client-side worm proximity stop: freeze near any enemy worm body
+      const allWorms = Object.values(this._worms);
+      for (const worm of allWorms) {
+        if (!worm.alive || worm.id === p.ownerId) continue;
+        const dist = Math.hypot(worm.x - p.x, (worm.y - 12) - p.y);
+        if (dist < 28) {
+          p.vx = 0; p.vy = 0;
+          p._stopped = true;
+          break;
+        }
+      }
+
       // Smoke puff every 3 frames for non-bullet projectiles
-      if (p.type !== 'bullet') {
+      if (!p._stopped && p.type !== 'bullet') {
         p._smokeFrame = ((p._smokeFrame || 0) + 1);
         if (p._smokeFrame % 3 === 0) {
           const sc = p.type === 'bazooka'        ? 'rgba(110,80,40,0.6)'
@@ -198,7 +231,7 @@ export default class GameScreen {
 
     // Camera: follow flying projectile so all players see it in flight.
     // Fall back to airstrike cursor or active worm when no projectile is airborne.
-    const flyingProj = this._projList.find(p => p.type !== 'mine');
+    const flyingProj = this._projList.find(p => p.type !== 'mine' && !p._stopped);
     const targetWorm = this._worms[this._currentId || this._myId];
     if (flyingProj) {
       this._renderer.followTarget(flyingProj.x, flyingProj.y, 0.14);
@@ -392,7 +425,7 @@ export default class GameScreen {
 
     const pts = [];
     for (let i = 0; i < 100; i++) {
-      vy += 0.38;
+      vy += 0.4;
       px += vx; py += vy;
       pts.push({ x: px, y: py });
       if (py > H || px < 0 || px > W) break;
