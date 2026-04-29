@@ -672,8 +672,8 @@ export default class GameScreen {
   }
 
   _onProjectile(msg) {
-    this._projList.push({ ...msg, gravity: msg.type === 'bullet' ? 0.1 : 0.4, trail: [] });
-    this._sound.playShot(msg.weapon || msg.type, msg.x);
+    this._projList.push({ ...msg, type: msg.weaponType, trail: [] });
+    this._sound.playShot(msg.weaponType || msg.weapon, msg.x);
     if (this._renderer) this._renderer.snapTo(msg.x, msg.y);
   }
 

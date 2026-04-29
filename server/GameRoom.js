@@ -405,7 +405,7 @@ class GameRoom {
         setTimeout(() => {
           if (this.state !== 'playing') return;
           this.projectiles.push(b);
-          this._broadcast({ type: 'projectile', ...b, weapon: 'machinegun' });
+          this._broadcast({ weaponType: b.type, ...b, type: 'projectile', weapon: 'machinegun' });
         }, b.delay * cfg.TICK_RATE);
       });
       this._startRetreat(4);
@@ -413,7 +413,7 @@ class GameRoom {
       const proj = Weapons.createProjectile(player.worm, weapon, angle, power);
       if (proj) {
         this.projectiles.push(proj);
-        this._broadcast({ type: 'projectile', ...proj });
+        this._broadcast({ weaponType: proj.type, ...proj, type: 'projectile' });
       }
       this._startRetreat(3);
     }
@@ -436,7 +436,7 @@ class GameRoom {
       setTimeout(() => {
         if (this.state !== 'playing') return;
         this.projectiles.push(p);
-        this._broadcast({ type: 'projectile', ...p });
+        this._broadcast({ weaponType: p.type, ...p, type: 'projectile' });
       }, i * 400);
     });
 
