@@ -454,7 +454,7 @@ class GameRoom {
 
     const mine = Weapons.createMine(player.worm);
     this.projectiles.push(mine);
-    this._broadcast({ type: 'mine_placed', x: mine.x, y: mine.y, id: mine.id });
+    this._broadcast({ type: 'mine_placed', x: mine.x, y: mine.y, id: mine.id, armTimer: mine.armTimer });
     this._broadcast({ type: 'state', worms: this._serializeWorms() });
 
     this._startRetreat(3);

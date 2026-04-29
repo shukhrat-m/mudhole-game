@@ -170,8 +170,11 @@ const Physics = {
   },
 
   _stepMine(proj, worms) {
+    if (proj.armTimer > 0) {
+      proj.armTimer--;
+      return { moved: false };
+    }
     for (const worm of worms) {
-      if (worm.id === proj.ownerId) continue;
       const dist = Math.hypot(worm.x - proj.x, worm.y - proj.y);
       if (dist < 35) {
         return { exploded: true, x: proj.x, y: proj.y, radius: proj.radius, maxDamage: proj.maxDamage };

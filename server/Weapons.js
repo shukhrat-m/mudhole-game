@@ -92,6 +92,7 @@ const Weapons = {
       bounces: 0,
       radius: 50,
       maxDamage: 50,
+      armTimer: 150, // 3s at 50 Hz — safe window for owner to retreat
     };
   },
 

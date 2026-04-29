@@ -165,7 +165,10 @@ export default class GameScreen {
     const PHYS_STEP = dt * (16.67 / 20); // ≈ 0.8335 at 60fps
 
     this._projList.forEach(p => {
-      if (p.type === 'mine') return;
+      if (p.type === 'mine') {
+        if (p.armTimer > 0) p.armTimer = Math.max(0, p.armTimer - PHYS_STEP * (20 / 16.67));
+        return;
+      }
       const maxTrail = p.type === 'bullet' ? 20 : 60;
       p.trail.push({ x: p.x, y: p.y });
       if (p.trail.length > maxTrail) p.trail.shift();
@@ -592,25 +595,37 @@ export default class GameScreen {
   _drawMine(ctx, p) {
     ctx.save();
     ctx.translate(p.x, p.y);
-    const blink = Math.floor(Date.now() / 400) % 2 === 0;
-    ctx.shadowColor = blink ? '#ff4444' : '#882222';
-    ctx.shadowBlur  = blink ? 16 : 6;
+    const armed = (p.armTimer ?? 0) <= 0;
+    const blink  = armed
+      ? Math.floor(Date.now() / 300) % 2 === 0   // fast red blink when armed
+      : Math.floor(Date.now() / 700) % 2 === 0;  // slow green blink when safe
     // Body
+    ctx.shadowColor = armed ? (blink ? '#ff4444' : '#882222') : (blink ? '#44ff88' : '#228844');
+    ctx.shadowBlur  = blink ? 16 : 6;
     ctx.fillStyle = '#4a4a4a'; ctx.strokeStyle = '#222'; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.roundRect(-12, -8, 24, 16, 4); ctx.fill(); ctx.stroke();
     // Warning stripe
-    ctx.fillStyle = '#ffcc00';
+    ctx.fillStyle = armed ? '#ffcc00' : '#44cc88';
     ctx.fillRect(-12, -2, 24, 4);
     ctx.fillStyle = '#333';
-    for (let i = -10; i < 12; i += 6) {
-      ctx.fillRect(i, -2, 3, 4);
-    }
+    for (let i = -10; i < 12; i += 6) ctx.fillRect(i, -2, 3, 4);
     // LED
-    ctx.fillStyle = blink ? '#ff4444' : '#660000';
+    ctx.fillStyle = armed
+      ? (blink ? '#ff4444' : '#660000')
+      : (blink ? '#44ff88' : '#116622');
     ctx.beginPath(); ctx.arc(0, -3, 3.5, 0, Math.PI * 2); ctx.fill();
     if (blink) {
-      ctx.fillStyle = '#ffaaaa';
+      ctx.fillStyle = armed ? '#ffaaaa' : '#aaffcc';
       ctx.beginPath(); ctx.arc(0, -3, 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    // Countdown label while safe
+    if (!armed) {
+      const secs = Math.ceil((p.armTimer ?? 0) / 50);
+      ctx.fillStyle = '#aaffcc';
+      ctx.font = 'bold 10px Segoe UI';
+      ctx.textAlign = 'center';
+      ctx.fillText(`SAFE ${secs}s`, 0, -14);
+      ctx.textAlign = 'left';
     }
     ctx.shadowBlur = 0;
     ctx.restore();
@@ -732,7 +747,7 @@ export default class GameScreen {
   }
 
   _onMinePlaced(msg) {
-    this._projList.push({ ...msg, type: 'mine', vx: 0, vy: 0, gravity: 0, trail: [] });
+    this._projList.push({ ...msg, type: 'mine', vx: 0, vy: 0, gravity: 0, trail: [], armTimer: msg.armTimer ?? 150 });
   }
 
   _onPlayerLeft(msg) {
